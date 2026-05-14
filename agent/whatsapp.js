@@ -1,140 +1,107 @@
 const axios = require('axios');
 
-const BASE_URL = `https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}`;
-
-const headers = () => ({
-  Authorization: `Bearer ${process.env.META_ACCESS_TOKEN}`,
-  'Content-Type': 'application/json',
-});
-
 // ============================================================
-// CORE SEND
+// TWILIO WHATSAPP SENDER
+//
+// Twilio does NOT support interactive buttons or lists —
+// those are Meta-only. Everything is plain text for now.
+// When you migrate to Meta, swap this file back.
 // ============================================================
 
-async function sendRaw(payload) {
+const ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID;
+const AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN;
+const FROM_NUMBER  = `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
+const API_URL      = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`;
+
+async function sendText(to, body) {
   try {
-    const res = await axios.post(`${BASE_URL}/messages`, payload, { headers: headers() });
-    return res.data;
+    await axios.post(
+      API_URL,
+      new URLSearchParams({
+        From: FROM_NUMBER,
+        To:   `whatsapp:${to}`,
+        Body: body,
+      }),
+      {
+        auth: { username: ACCOUNT_SID, password: AUTH_TOKEN },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      }
+    );
   } catch (err) {
     const detail = err.response?.data || err.message;
-    console.error('WhatsApp send error:', JSON.stringify(detail));
+    console.error('Twilio send error:', JSON.stringify(detail));
     throw err;
   }
 }
 
 // ============================================================
-// TEXT MESSAGE
-// ============================================================
-
-async function sendText(to, text) {
-  return sendRaw({
-    messaging_product: 'whatsapp',
-    to,
-    type: 'text',
-    text: { body: text, preview_url: false },
-  });
-}
-
-// ============================================================
-// BUTTONS (up to 3)
+// BUTTONS → plain text with numbered options
 // ============================================================
 
 async function sendButtons(to, bodyText, buttons) {
-  // buttons: [{ id: 'btn_id', title: 'Label' }]
-  return sendRaw({
-    messaging_product: 'whatsapp',
-    to,
-    type: 'interactive',
-    interactive: {
-      type: 'button',
-      body: { text: bodyText },
-      action: {
-        buttons: buttons.map(b => ({
-          type: 'reply',
-          reply: { id: b.id, title: b.title.substring(0, 20) }, // Meta limit: 20 chars
-        })),
-      },
-    },
-  });
+  const options = buttons
+    .map((b, i) => `${i + 1}. ${b.title}`)
+    .join('\n');
+  return sendText(to, `${bodyText}\n\n${options}\n\n_Reply with the number of your choice._`);
 }
 
 // ============================================================
-// LIST (up to 10 items)
+// LIST → plain text with numbered rows
 // ============================================================
 
 async function sendList(to, bodyText, buttonLabel, sections) {
-  // sections: [{ title: 'Section', rows: [{ id, title, description }] }]
-  return sendRaw({
-    messaging_product: 'whatsapp',
-    to,
-    type: 'interactive',
-    interactive: {
-      type: 'list',
-      body: { text: bodyText },
-      action: {
-        button: buttonLabel.substring(0, 20),
-        sections: sections.map(s => ({
-          title: s.title.substring(0, 24),
-          rows: s.rows.map(r => ({
-            id: r.id.substring(0, 200),
-            title: r.title.substring(0, 24),
-            description: (r.description || '').substring(0, 72),
-          })),
-        })),
-      },
-    },
+  const lines = [bodyText, ''];
+  sections.forEach(s => {
+    if (s.title) lines.push(`*${s.title}*`);
+    s.rows.forEach((r, i) => {
+      lines.push(`${i + 1}. ${r.title}${r.description ? ` — ${r.description}` : ''}`);
+    });
   });
+  lines.push('\n_Reply with the number of your choice._');
+  return sendText(to, lines.join('\n'));
 }
 
 // ============================================================
-// LANGUAGE SELECTION — special first-session message
+// LANGUAGE SELECTION
 // ============================================================
 
 async function sendLanguageSelection(to) {
-  return sendButtons(to,
-    '👋 Welcome to Baz!\n\nPlease choose your language:\nKouman ou vle pale?\nChoisissez votre langue:',
-    [
-      { id: 'lang_ht', title: '🇭🇹 Kreyòl' },
-      { id: 'lang_en', title: '🇺🇸 English' },
-      { id: 'lang_fr', title: '🇫🇷 Français' },
-    ]
+  return sendText(to,
+    '👋 Welcome to Baz!\n\nPlease choose your language:\nKouman ou vle pale?\nChoisissez votre langue:\n\n1. 🇭🇹 Kreyòl — reply *lang_ht*\n2. 🇺🇸 English — reply *lang_en*\n3. 🇫🇷 Français — reply *lang_fr*'
   );
 }
 
 // ============================================================
-// BUSINESS RESULTS LIST
+// BUSINESS RESULTS
 // ============================================================
 
 async function sendBusinessResults(to, businesses, lang) {
   if (!businesses.length) return null;
 
-  const labels = {
-    ht: { header: 'Rezilta yo', button: 'Wè plis', verified: '✅ Verifye' },
-    en: { header: 'Results', button: 'See more', verified: '✅ Verified' },
-    fr: { header: 'Résultats', button: 'Voir plus', verified: '✅ Vérifié' },
-  };
-  const l = labels[lang] || labels.en;
+  const headers = { ht: '📋 Rezilta yo:', en: '📋 Results:', fr: '📋 Résultats:' };
+  const footer  = { ht: '_Reponn ak nimewo biznis ou vle a._', en: '_Reply with the number to learn more._', fr: '_Répondez avec le numéro pour en savoir plus._' };
 
-  const rows = businesses.map(b => ({
-    id: `biz_${b.id}`,
-    title: b.name.substring(0, 24),
-    description: [
-      b.is_verified ? l.verified : '',
-      b.avg_rating > 0 ? `⭐ ${b.avg_rating}` : '',
-      b.neighborhood || b.city || '',
-    ].filter(Boolean).join(' · ').substring(0, 72),
-  }));
+  const lines = [headers[lang] || headers.en, ''];
+  businesses.forEach((b, i) => {
+    const verified = b.is_verified ? ' ✅' : '';
+    const rating   = b.avg_rating > 0 ? ` ⭐${b.avg_rating}` : '';
+    const location = b.neighborhood || b.city || '';
+    lines.push(`${i + 1}. *${b.name}*${verified}${rating}`);
+    if (location) lines.push(`   📍 ${location}`);
+  });
+  lines.push('');
+  lines.push(footer[lang] || footer.en);
 
-  return sendList(to, `📋 ${l.header}`, l.button, [{ title: l.header, rows }]);
+  return sendText(to, lines.join('\n'));
 }
 
 // ============================================================
-// BUSINESS DETAIL CARD
+// BUSINESS DETAIL
 // ============================================================
 
 async function sendBusinessDetail(to, business, lang) {
-  const cat = business.service_categories;
-  const icon = cat?.icon || '🏢';
+  const cat     = business.service_categories;
+  const icon    = cat?.icon || '🏢';
   const catName = lang === 'ht' ? cat?.name_ht : lang === 'fr' ? cat?.name_fr : cat?.name_en;
 
   const lines = [
@@ -143,23 +110,14 @@ async function sendBusinessDetail(to, business, lang) {
     '',
     business.description || '',
     '',
-    business.neighborhood ? `📍 ${business.neighborhood}, ${business.city}` : `📍 ${business.city}`,
-    business.phone ? `📞 ${business.phone}` : '',
+    business.neighborhood ? `📍 ${business.neighborhood}, ${business.city}` : `📍 ${business.city || ''}`,
+    business.phone   ? `📞 ${business.phone}` : '',
     business.whatsapp ? `💬 wa.me/${business.whatsapp.replace(/\D/g, '')}` : '',
     business.avg_rating > 0 ? `⭐ ${business.avg_rating} (${business.review_count} reviews)` : '',
     business.is_verified ? '✅ Verified business' : '',
   ].filter(Boolean).join('\n');
 
-  const contactButtons = {
-    ht: 'Kontakte',
-    en: 'Contact',
-    fr: 'Contacter',
-  };
-
-  return sendButtons(to, lines, [
-    { id: `contact_${business.id}`, title: contactButtons[lang] || 'Contact' },
-    { id: `book_${business.id}`, title: '📅 Book' },
-  ]);
+  return sendText(to, lines);
 }
 
 module.exports = {
