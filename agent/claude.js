@@ -88,7 +88,7 @@ async function chat(userMessage, lang, conversationHistory = [], contextData = {
   ];
 
   const res = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-3-5-sonnet-20241022',
     max_tokens: 400,
     system: systemBase + systemSuffix,
     messages,
@@ -115,7 +115,7 @@ All fields optional. country is "HT" for Haiti, "US", "CA" for diaspora. city in
 
   try {
     const res = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 150,
       messages: [{ role: 'user', content: prompt }],
     });
