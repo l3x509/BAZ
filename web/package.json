@@ -1,26 +1,30 @@
 {
-  "name": "baz-agent",
+  "name": "baz-web",
   "version": "1.0.0",
-  "description": "Baz WhatsApp AI agent — Haitian diaspora directory and marketplace",
-  "main": "server.js",
+  "description": "Baz — Haitian diaspora directory and marketplace website",
+  "private": true,
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev":   "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint":  "next lint"
   },
   "engines": {
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.20.0",
+    "next":                  "14.2.0",
+    "react":                 "^18.3.0",
+    "react-dom":             "^18.3.0",
     "@supabase/supabase-js": "^2.39.0",
-    "axios": "^1.6.0",
-    "dotenv": "^16.3.0",
-    "express": "^4.18.0",
-    "form-data": "^4.0.0",
-    "openai": "^4.28.0",
-    "stripe": "^14.17.0"
+    "@supabase/ssr":         "^0.3.0",
+    "lucide-react":          "^0.383.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.0"
+    "tailwindcss":       "^3.4.0",
+    "postcss":           "^8.4.0",
+    "autoprefixer":      "^10.4.0",
+    "eslint":            "^8.57.0",
+    "eslint-config-next": "14.2.0"
   }
 }
