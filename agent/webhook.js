@@ -1,95 +1,67 @@
-const { processMessage } = require('./router');
+const { processMessage }  = require('./router');
+const { isDuplicate }     = require('./db');
+const { transcribeAudio } = require('./utils/whisper');
 
 // ============================================================
-// META WEBHOOK VERIFICATION
-// GET /webhook
-// ============================================================
-function verifyWebhook(req, res) {
-  const mode = req.query['hub.mode'];
-  const token = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
-    console.log('Webhook verified');
-    return res.status(200).send(challenge);
-  }
-
-  console.error('Webhook verification failed');
-  res.sendStatus(403);
-}
-
-// ============================================================
-// INCOMING MESSAGES
+// TWILIO WHATSAPP WEBHOOK
 // POST /webhook
+//
+// Key differences from Meta:
+// - Payload is form-encoded (not JSON) — express needs urlencoded middleware
+// - From field includes 'whatsapp:' prefix — must strip it
+// - MessageSid is the unique message ID
+// - Audio comes as MediaUrl0, downloaded with Twilio credentials
+// - No GET verification endpoint needed
 // ============================================================
+
 async function handleWebhook(req, res) {
-  // Always respond 200 immediately — Meta retries if we don't
+  // Twilio expects 200 immediately
   res.sendStatus(200);
 
   try {
     const body = req.body;
 
-    if (body.object !== 'whatsapp_business_account') return;
+    // Strip 'whatsapp:+15551234567' → '+15551234567'
+    const waId        = (body.From || '').replace('whatsapp:', '');
+    const displayName = body.ProfileName || '';
+    const messageId   = body.MessageSid;
+    const numMedia    = parseInt(body.NumMedia || '0', 10);
 
-    const entry = body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value = changes?.value;
+    if (!waId || !messageId) return;
 
-    if (!value?.messages?.length) return;
-
-    const message = value.messages[0];
-    const contact = value.contacts?.[0];
-
-    const waId = message.from;
-    const displayName = contact?.profile?.name || '';
-    const messageId = message.id;
-
-    // Deduplicate — Meta sometimes sends the same message twice
-    const { isDuplicate } = require('./db');
+    // Deduplicate
     if (await isDuplicate(messageId)) {
       console.log(`Duplicate message ${messageId}, skipping`);
       return;
     }
 
-    // Parse the message content
-    let content = null;
-    let messageType = message.type;
+    let content     = null;
+    let messageType = 'text';
 
-    if (messageType === 'text') {
-      content = message.text?.body?.trim();
-    } else if (messageType === 'audio') {
-      // Voice note — transcribe via Whisper
-      const { transcribeAudio } = require('./utils/whisper');
-      content = await transcribeAudio(message.audio.id);
-      messageType = 'voice';
-    } else if (messageType === 'interactive') {
-      // Button or list reply
-      const interactive = message.interactive;
-      if (interactive.type === 'button_reply') {
-        content = interactive.button_reply.id; // use the button ID as content
-        messageType = 'button';
-      } else if (interactive.type === 'list_reply') {
-        content = interactive.list_reply.id;
-        messageType = 'list';
+    if (numMedia > 0) {
+      const mediaType = body.MediaContentType0 || '';
+      const mediaUrl  = body.MediaUrl0 || '';
+
+      if (mediaType.startsWith('audio/')) {
+        // Voice note — transcribe via Whisper
+        content     = await transcribeAudio(mediaUrl);
+        messageType = 'voice';
+      } else {
+        // Images, docs, etc. not supported yet
+        return;
       }
+
     } else {
-      // Unsupported type — ignore silently
-      return;
+      content = (body.Body || '').trim();
     }
 
     if (!content) return;
 
-    await processMessage({
-      waId,
-      displayName,
-      messageId,
-      messageType,
-      content,
-    });
+    await processMessage({ waId, displayName, messageId, messageType, content });
 
   } catch (err) {
     console.error('Webhook error:', err);
   }
 }
 
-module.exports = { verifyWebhook, handleWebhook };
+module.exports = { handleWebhook };
