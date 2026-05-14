@@ -1,6 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const { handleWebhook, verifyWebhook } = require('./src/webhook');
+const { handleWebhook, verifyWebhook } = require('./webhook');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
