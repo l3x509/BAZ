@@ -54,7 +54,7 @@ Params are optional and extracted only when clearly present.`;
 
   try {
     const res = await client.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-sonnet-4-5',
       max_tokens: 200,
       system: systemPrompt,
       messages,
@@ -88,7 +88,7 @@ async function chat(userMessage, lang, conversationHistory = [], contextData = {
   ];
 
   const res = await client.messages.create({
-    model: 'claude-3-haiku-20240307',
+    model: 'claude-sonnet-4-5',
     max_tokens: 400,
     system: systemBase + systemSuffix,
     messages,
@@ -115,7 +115,7 @@ All fields optional. country is "HT" for Haiti, "US", "CA" for diaspora. city in
 
   try {
     const res = await client.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-sonnet-4-5',
       max_tokens: 150,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -150,7 +150,7 @@ All fields optional except at least one split.`;
 
   try {
     const res = await client.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-sonnet-4-5',
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
     });
