@@ -10,7 +10,9 @@ const axios = require('axios');
 
 const ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN;
-const FROM_NUMBER  = `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
+const FROM_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER.startsWith('whatsapp:')
+  ? process.env.TWILIO_WHATSAPP_NUMBER
+  : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
 const API_URL      = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`;
 
 async function sendText(to, body) {
