@@ -1,342 +1,183 @@
 -- ============================================================
--- BAZ DATABASE SCHEMA
--- Shared by: WhatsApp Agent (now) + Website (later) + TwinZile (future)
+-- BAZ SEED DATA — businesses table
+-- Run this in Supabase SQL Editor
+-- Categories are already seeded in schema.sql
+-- ⚠️  Review names/details before using in production
+--     Generated from general knowledge, not direct cultural source
 -- ============================================================
 
--- Extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm"; -- fuzzy search on business names
+INSERT INTO businesses (
+  category_id, name, description, phone, whatsapp,
+  city, country, neighborhood,
+  status, is_verified, languages, listing_tier,
+  avg_rating, review_count
+)
 
--- ============================================================
--- ENUMS
--- ============================================================
+SELECT
+  c.id,
+  b.name, b.description, b.phone, b.whatsapp,
+  b.city, b.country, b.neighborhood,
+  'active'::business_status,
+  b.is_verified,
+  b.languages,
+  'free',
+  b.avg_rating,
+  b.review_count
+FROM (VALUES
 
-CREATE TYPE user_role AS ENUM ('diaspora', 'vendor', 'admin');
-CREATE TYPE user_language AS ENUM ('ht', 'en', 'fr'); -- Haitian Creole, English, French
-CREATE TYPE business_status AS ENUM ('pending', 'active', 'suspended', 'inactive');
-CREATE TYPE booking_status AS ENUM ('inquiry', 'confirmed', 'in_progress', 'completed', 'cancelled');
-CREATE TYPE transaction_status AS ENUM ('pending', 'processing', 'completed', 'failed', 'refunded');
-CREATE TYPE remittance_type AS ENUM ('grocery', 'school_fee', 'contractor', 'electricity', 'medical', 'general');
-CREATE TYPE event_type AS ENUM (
-  'session_start', 'language_selected', 'message_received', 'message_sent',
-  'search_performed', 'business_viewed', 'inquiry_created', 'booking_created',
-  'booking_updated', 'transaction_initiated', 'transaction_completed',
-  'remittance_initiated', 'remittance_completed', 'vendor_onboarded'
-);
+  -- ── PORT-AU-PRINCE ──────────────────────────────────────────
 
--- ============================================================
--- CORE: USERS
--- ============================================================
+  ('plumber',     'Plonbye Rapid PAP',
+   'Plonbye eksperyanse pou tout reparasyon dlo. Disponib 7j/7.',
+   '+50937000001', '+50937000001',
+   'Port-au-Prince', 'HT', 'Delmas',
+   true, ARRAY['ht','fr'], 4.7, 12),
 
-CREATE TABLE users (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  whatsapp_id     TEXT UNIQUE NOT NULL,         -- Meta's wa_id (phone number)
-  phone           TEXT,
-  name            TEXT,
-  language        user_language DEFAULT 'en',
-  role            user_role DEFAULT 'diaspora',
-  location_city   TEXT,                          -- e.g. "Boston", "Port-au-Prince"
-  location_country TEXT,                         -- e.g. "US", "HT"
-  is_verified     BOOLEAN DEFAULT FALSE,
-  session_state   JSONB DEFAULT '{}',            -- current conversation state
-  last_seen_at    TIMESTAMPTZ,
-  created_at      TIMESTAMPTZ DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ DEFAULT NOW()
-);
+  ('electrician', 'Elektro Ayiti',
+   'Entèpozisyon ak reparasyon sistèm elektrik. Kaye biznis ak kay.',
+   '+50937000002', '+50937000002',
+   'Port-au-Prince', 'HT', 'Pétion-Ville',
+   true, ARRAY['ht','fr'], 4.5, 8),
 
-CREATE INDEX idx_users_whatsapp_id ON users(whatsapp_id);
-CREATE INDEX idx_users_role ON users(role);
+  ('restaurant',  'Resto Kay Manman',
+   'Manje ayisyen otantik. Griyo, tasso, legim, soup joumou chak dimanch.',
+   '+50937000003', '+50937000003',
+   'Port-au-Prince', 'HT', 'Turgeau',
+   true, ARRAY['ht','fr'], 4.9, 34),
 
--- ============================================================
--- CORE: SERVICE CATEGORIES
--- ============================================================
+  ('driver',      'Chofè Servis Pétion-Ville',
+   'Transpò fiyab nan tout zòn Port-au-Prince. Rézèvasyon avan prefere.',
+   '+50937000004', '+50937000004',
+   'Port-au-Prince', 'HT', 'Pétion-Ville',
+   false, ARRAY['ht','fr'], 4.3, 5),
 
-CREATE TABLE service_categories (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  slug        TEXT UNIQUE NOT NULL,   -- e.g. "plumber", "driver", "tutor"
-  name_en     TEXT NOT NULL,
-  name_ht     TEXT NOT NULL,
-  name_fr     TEXT NOT NULL,
-  icon        TEXT,                   -- emoji or icon name
-  is_active   BOOLEAN DEFAULT TRUE,
-  sort_order  INTEGER DEFAULT 0,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
-);
+  ('grocery',     'Komisyon Lakay',
+   'Livrezon komisyon nan tout Delmas ak Pétion-Ville. Mache Salomon ak Marché en Fer.',
+   '+50937000005', '+50937000005',
+   'Port-au-Prince', 'HT', 'Delmas',
+   true, ARRAY['ht'], 4.6, 19),
 
-INSERT INTO service_categories (slug, name_en, name_ht, name_fr, icon, sort_order) VALUES
-  ('plumber',      'Plumber',          'Plonbye',         'Plombier',          '🔧', 1),
-  ('electrician',  'Electrician',      'Elektrisyen',     'Électricien',       '⚡', 2),
-  ('driver',       'Driver',           'Chofè',           'Chauffeur',         '🚗', 3),
-  ('tutor',        'Tutor',            'Pwofesè',         'Tuteur',            '📚', 4),
-  ('contractor',   'Contractor',       'Kontraktè',       'Entrepreneur',      '🏗️', 5),
-  ('cook',         'Cook / Chef',      'Kizinyè',         'Cuisinier',         '👨‍🍳', 6),
-  ('grocery',      'Grocery Delivery', 'Livrezon Manje',  'Épicerie',          '🛒', 7),
-  ('cleaner',      'Cleaning Service', 'Netwayaj',        'Nettoyage',         '🧹', 8),
-  ('mechanic',     'Mechanic',         'Mekanisyen',      'Mécanicien',        '🔩', 9),
-  ('restaurant',   'Restaurant',       'Restoran',        'Restaurant',        '🍽️', 10),
-  ('medical',      'Medical / Health', 'Medikal',         'Médical',           '🏥', 11),
-  ('other',        'Other',            'Lòt',             'Autre',             '📋', 99);
+  ('contractor',  'Konstriksyon Toussaint',
+   'Konstriksyon, renovasyon, ak entretyen batiman. Devis gratis.',
+   '+50937000006', '+50937000006',
+   'Port-au-Prince', 'HT', 'Tabarre',
+   true, ARRAY['ht','fr'], 4.4, 7),
 
--- ============================================================
--- CORE: BUSINESSES (BAZ DIRECTORY)
--- ============================================================
+  ('tutor',       'Pwofesè Matematik Marie',
+   'Kours prive matematik ak syans pou elèv primè ak segondè.',
+   '+50937000007', '+50937000007',
+   'Port-au-Prince', 'HT', 'Bourdon',
+   false, ARRAY['ht','fr'], 5.0, 3),
 
-CREATE TABLE businesses (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  owner_id            UUID REFERENCES users(id) ON DELETE SET NULL,
-  category_id         UUID REFERENCES service_categories(id),
-  name                TEXT NOT NULL,
-  description         TEXT,
-  phone               TEXT,
-  whatsapp            TEXT,
-  email               TEXT,
-  website             TEXT,
+  ('cleaner',     'Netwayaj Propre',
+   'Netwayaj kay, biwo, ak apre evènman. Ekip pwofesyonèl.',
+   '+50937000008', '+50937000008',
+   'Port-au-Prince', 'HT', 'Delmas',
+   false, ARRAY['ht'], 4.2, 6),
 
-  -- Location
-  city                TEXT NOT NULL,
-  country             TEXT NOT NULL DEFAULT 'HT',  -- HT or diaspora city
-  neighborhood        TEXT,
-  address             TEXT,
-  lat                 NUMERIC(10, 7),
-  lng                 NUMERIC(10, 7),
+  ('mechanic',    'Mekanisyen Auto Jean-Pierre',
+   'Reparasyon tout mak machin. Espesyalize nan Toyota ak Nissan.',
+   '+50937000009', '+50937000009',
+   'Port-au-Prince', 'HT', 'Fontamara',
+   true, ARRAY['ht','fr'], 4.8, 22),
 
-  -- Trust & verification
-  status              business_status DEFAULT 'pending',
-  is_verified         BOOLEAN DEFAULT FALSE,
-  verification_notes  TEXT,
-  verified_at         TIMESTAMPTZ,
+  ('medical',     'Klinik Sante Espwa',
+   'Konsiltasyon jeneral, pediátri, ak swen prenatal. Ouvrèt lendi-samdi.',
+   '+50937000010', '+50937000010',
+   'Port-au-Prince', 'HT', 'Pétion-Ville',
+   true, ARRAY['ht','fr','en'], 4.6, 41),
 
-  -- Listing tier
-  is_featured         BOOLEAN DEFAULT FALSE,
-  listing_tier        TEXT DEFAULT 'free',         -- 'free', 'basic', 'pro'
-  listing_expires_at  TIMESTAMPTZ,
+  -- ── CAP-HAÏTIEN ─────────────────────────────────────────────
 
-  -- Stats (denormalized for speed)
-  review_count        INTEGER DEFAULT 0,
-  avg_rating          NUMERIC(3,2) DEFAULT 0,
-  inquiry_count       INTEGER DEFAULT 0,
+  ('restaurant',  'Lakou Resto Cap',
+   'Pwason fre ak manje lokal. Prè plaj Cormier.',
+   '+50939000001', '+50939000001',
+   'Cap-Haïtien', 'HT', 'Centre-ville',
+   true, ARRAY['ht','fr'], 4.7, 15),
 
-  -- Languages spoken
-  languages           TEXT[] DEFAULT ARRAY['ht'],
+  ('driver',      'Taxi Nord Ekspres',
+   'Transpò Cap-Haïtien a Port-au-Prince. Vwayaj chak jou.',
+   '+50939000002', '+50939000002',
+   'Cap-Haïtien', 'HT', 'Vertières',
+   false, ARRAY['ht'], 4.1, 9),
 
-  -- TwinZile: raw metadata bag
-  meta                JSONB DEFAULT '{}',
+  ('contractor',  'Bâtisseur du Nord',
+   'Konstriksyon kay ak renovasyon. Ekip eksperyanse nan Nò.',
+   '+50939000003', '+50939000003',
+   'Cap-Haïtien', 'HT', 'Lizon',
+   false, ARRAY['ht','fr'], 4.3, 4),
 
-  created_at          TIMESTAMPTZ DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ DEFAULT NOW()
-);
+  -- ── BOSTON DIASPORA ──────────────────────────────────────────
 
-CREATE INDEX idx_businesses_category ON businesses(category_id);
-CREATE INDEX idx_businesses_city ON businesses(city);
-CREATE INDEX idx_businesses_country ON businesses(country);
-CREATE INDEX idx_businesses_status ON businesses(status);
-CREATE INDEX idx_businesses_name_trgm ON businesses USING GIN (name gin_trgm_ops);
+  ('restaurant',  'Chez Claudette Boston',
+   'Authentic Haitian food in Mattapan. Griot, pikliz, diri ak pwa.',
+   '+16175550001', '+16175550001',
+   'Boston', 'US', 'Mattapan',
+   true, ARRAY['ht','en','fr'], 4.8, 67),
 
--- ============================================================
--- CORE: REVIEWS
--- ============================================================
+  ('tutor',       'Boston Haitian Tutors',
+   'Academic tutoring for K-12. Bilingual Kreyòl/English. Math, reading, science.',
+   '+16175550002', '+16175550002',
+   'Boston', 'US', 'Hyde Park',
+   true, ARRAY['ht','en'], 4.9, 18),
 
-CREATE TABLE reviews (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  business_id   UUID REFERENCES businesses(id) ON DELETE CASCADE,
-  reviewer_id   UUID REFERENCES users(id) ON DELETE SET NULL,
-  rating        INTEGER CHECK (rating BETWEEN 1 AND 5),
-  comment       TEXT,
-  is_verified   BOOLEAN DEFAULT FALSE,   -- verified transaction
-  created_at    TIMESTAMPTZ DEFAULT NOW()
-);
+  ('contractor',  'Jobin Construction LLC',
+   'Residential construction and renovation. Licensed & insured in Massachusetts.',
+   '+16175550003', '+16175550003',
+   'Boston', 'US', 'Dorchester',
+   true, ARRAY['ht','en'], 4.5, 11),
 
-CREATE INDEX idx_reviews_business ON reviews(business_id);
+  -- ── MIAMI DIASPORA ───────────────────────────────────────────
 
--- ============================================================
--- CONVERSATIONS: SESSION STATE
--- ============================================================
+  ('grocery',     'Little Haiti Market Miami',
+   'Haitian groceries, spices, and fresh produce. NW 2nd Ave.',
+   '+13055550001', '+13055550001',
+   'Miami', 'US', 'Little Haiti',
+   true, ARRAY['ht','en','fr'], 4.6, 29),
 
-CREATE TABLE conversations (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
-  whatsapp_id     TEXT NOT NULL,
-  intent          TEXT,                    -- 'find', 'pay', 'onboard', 'status', 'unknown'
-  state           JSONB DEFAULT '{}',      -- full conversation state machine data
-  context         JSONB DEFAULT '{}',      -- search params, selected business, etc.
-  is_active       BOOLEAN DEFAULT TRUE,
-  last_message_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at      TIMESTAMPTZ DEFAULT NOW()
-);
+  ('restaurant',  'Tap Tap Restaurant Miami',
+   'Famous Haitian restaurant on Miami Beach. Art, culture, and great food.',
+   '+13055550002', '+13055550002',
+   'Miami', 'US', 'Little Haiti',
+   true, ARRAY['ht','en','fr'], 4.7, 112),
 
-CREATE INDEX idx_conversations_user ON conversations(user_id);
-CREATE INDEX idx_conversations_whatsapp ON conversations(whatsapp_id);
-CREATE INDEX idx_conversations_active ON conversations(is_active, last_message_at);
+  ('driver',      'Miami Haitian Car Service',
+   'Airport transfers and local rides. Haitian-owned, dependable service.',
+   '+13055550003', '+13055550003',
+   'Miami', 'US', 'Little Haiti',
+   false, ARRAY['ht','en'], 4.4, 8),
 
--- ============================================================
--- CONVERSATIONS: MESSAGE LOG
--- ============================================================
+  -- ── MONTREAL DIASPORA ────────────────────────────────────────
 
-CREATE TABLE messages (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  conversation_id UUID REFERENCES conversations(id) ON DELETE CASCADE,
-  user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
-  direction       TEXT NOT NULL CHECK (direction IN ('inbound', 'outbound')),
-  message_type    TEXT DEFAULT 'text',     -- 'text', 'voice', 'image', 'template'
-  content         TEXT,                    -- text content or transcription
-  media_url       TEXT,                    -- original media URL if voice/image
-  meta_message_id TEXT,                    -- Meta's message ID for dedup
-  created_at      TIMESTAMPTZ DEFAULT NOW()
-);
+  ('restaurant',  'Resto Tropicana Montreal',
+   'Cuisine haïtienne authentique à Saint-Michel. Livraison disponible.',
+   '+15145550001', '+15145550001',
+   'Montreal', 'CA', 'Saint-Michel',
+   true, ARRAY['ht','fr'], 4.8, 44),
 
-CREATE INDEX idx_messages_conversation ON messages(conversation_id);
-CREATE INDEX idx_messages_meta_id ON messages(meta_message_id);
+  ('tutor',       'Cours Créole Montréal',
+   'Cours particuliers en français, math et sciences. Bilingue kreyòl/français.',
+   '+15145550002', '+15145550002',
+   'Montreal', 'CA', 'Montréal-Nord',
+   false, ARRAY['ht','fr'], 4.7, 6),
 
--- ============================================================
--- TRANSACTIONS: INQUIRIES
--- ============================================================
+  -- ── NEW YORK DIASPORA ────────────────────────────────────────
 
-CREATE TABLE inquiries (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
-  business_id   UUID REFERENCES businesses(id) ON DELETE SET NULL,
-  message       TEXT,
-  status        TEXT DEFAULT 'open',       -- 'open', 'responded', 'closed'
-  created_at    TIMESTAMPTZ DEFAULT NOW()
-);
+  ('restaurant',  'Flatbush Haitian Kitchen',
+   'Haitian home cooking in Brooklyn. Soup joumou every Sunday.',
+   '+17185550001', '+17185550001',
+   'New York', 'US', 'Flatbush',
+   true, ARRAY['ht','en'], 4.9, 88),
 
--- ============================================================
--- TRANSACTIONS: BOOKINGS
--- ============================================================
+  ('contractor',  'Brooklyn Haitian Builders',
+   'NYC-licensed contractors. Residential renovations, basements, roofing.',
+   '+17185550002', '+17185550002',
+   'New York', 'US', 'Crown Heights',
+   true, ARRAY['ht','en'], 4.5, 16)
 
-CREATE TABLE bookings (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
-  business_id     UUID REFERENCES businesses(id) ON DELETE SET NULL,
-  category_id     UUID REFERENCES service_categories(id),
-  description     TEXT,
-  scheduled_at    TIMESTAMPTZ,
-  status          booking_status DEFAULT 'inquiry',
-  price_estimate  NUMERIC(10,2),
-  currency        TEXT DEFAULT 'USD',
-  notes           TEXT,
-  meta            JSONB DEFAULT '{}',
-  created_at      TIMESTAMPTZ DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_bookings_user ON bookings(user_id);
-CREATE INDEX idx_bookings_business ON bookings(business_id);
-CREATE INDEX idx_bookings_status ON bookings(status);
-
--- ============================================================
--- TRANSACTIONS: PAYMENTS
--- ============================================================
-
-CREATE TABLE transactions (
-  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id             UUID REFERENCES users(id) ON DELETE SET NULL,
-  booking_id          UUID REFERENCES bookings(id) ON DELETE SET NULL,
-  stripe_payment_id   TEXT UNIQUE,
-  stripe_payment_link TEXT,
-  amount              NUMERIC(10,2) NOT NULL,
-  fee                 NUMERIC(10,2),
-  currency            TEXT DEFAULT 'USD',
-  status              transaction_status DEFAULT 'pending',
-  description         TEXT,
-  meta                JSONB DEFAULT '{}',
-  created_at          TIMESTAMPTZ DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_transactions_user ON transactions(user_id);
-CREATE INDEX idx_transactions_status ON transactions(status);
-
--- ============================================================
--- TRANSACTIONS: REMITTANCES
--- ============================================================
-
-CREATE TABLE remittances (
-  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  sender_id         UUID REFERENCES users(id) ON DELETE SET NULL,
-  recipient_name    TEXT NOT NULL,
-  recipient_phone   TEXT,
-  total_amount      NUMERIC(10,2) NOT NULL,
-  fee               NUMERIC(10,2),
-  currency          TEXT DEFAULT 'USD',
-  status            transaction_status DEFAULT 'pending',
-
-  -- Structured splits (the key differentiator vs raw cash)
-  splits            JSONB DEFAULT '[]',
-  -- e.g. [{"type": "grocery", "amount": 80, "vendor_id": "uuid", "note": "Marché Salomon"},
-  --        {"type": "school_fee", "amount": 120, "vendor_id": "uuid", "note": "École Nationale"}]
-
-  stripe_payment_id TEXT,
-  stripe_payment_link TEXT,
-  meta              JSONB DEFAULT '{}',
-  created_at        TIMESTAMPTZ DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_remittances_sender ON remittances(sender_id);
-CREATE INDEX idx_remittances_status ON remittances(status);
-
--- ============================================================
--- TWINZILE: EVENT STREAM (append-only, never update)
--- ============================================================
-
-CREATE TABLE events (
-  id            BIGSERIAL PRIMARY KEY,             -- serial for ordering
-  event_type    event_type NOT NULL,
-  user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
-  session_id    UUID,                              -- conversation id
-  entity_type   TEXT,                             -- 'business', 'booking', 'transaction', etc.
-  entity_id     UUID,
-  payload       JSONB DEFAULT '{}',               -- full context snapshot
-  city          TEXT,                             -- denormalized for fast geo queries
-  country       TEXT,
-  created_at    TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_events_type ON events(event_type);
-CREATE INDEX idx_events_user ON events(user_id);
-CREATE INDEX idx_events_created ON events(created_at);
-CREATE INDEX idx_events_city ON events(city);
--- No updates ever on this table — append only
-
--- ============================================================
--- HELPERS: updated_at trigger
--- ============================================================
-
-CREATE OR REPLACE FUNCTION update_updated_at()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_users_updated_at
-  BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER trg_businesses_updated_at
-  BEFORE UPDATE ON businesses FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER trg_bookings_updated_at
-  BEFORE UPDATE ON bookings FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER trg_transactions_updated_at
-  BEFORE UPDATE ON transactions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
-CREATE TRIGGER trg_remittances_updated_at
-  BEFORE UPDATE ON remittances FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-
--- ============================================================
--- ROW LEVEL SECURITY (enable when using Supabase auth)
--- ============================================================
-
-ALTER TABLE users ENABLE ROW LEVEL SECURITY;
-ALTER TABLE businesses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
-ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE remittances ENABLE ROW LEVEL SECURITY;
-
--- Service role bypasses RLS (used by the agent)
--- Website will add user-specific policies later
+) AS b(
+  category_slug, name, description, phone, whatsapp,
+  city, country, neighborhood,
+  is_verified, languages, avg_rating, review_count
+)
+JOIN service_categories c ON c.slug = b.category_slug;
