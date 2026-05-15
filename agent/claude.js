@@ -3,6 +3,25 @@ const Anthropic = require('@anthropic-ai/sdk');
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ============================================================
+// SAFE JSON PARSER
+// Strips markdown fences Claude occasionally wraps around JSON
+// ============================================================
+
+function safeParseJSON(text, fallback = {}) {
+  try {
+    const cleaned = text
+      .trim()
+      .replace(/^```json\s*/i, '')
+      .replace(/^```\s*/i, '')
+      .replace(/\s*```$/i, '');
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error('JSON parse failed. Raw text:', text);
+    return fallback;
+  }
+}
+
+// ============================================================
 // SYSTEM PROMPTS BY LANGUAGE
 // ============================================================
 
@@ -48,7 +67,7 @@ Format: { "intent": "find", "params": { "category": "plumber", "city": "Port-au-
 Params are optional and extracted only when clearly present.`;
 
   const messages = [
-    ...conversationHistory.slice(-4), // last 2 exchanges for context
+    ...conversationHistory.slice(-4),
     { role: 'user', content: message },
   ];
 
@@ -61,7 +80,7 @@ Params are optional and extracted only when clearly present.`;
     });
 
     const text = res.content[0]?.text?.trim() || '{}';
-    return JSON.parse(text);
+    return safeParseJSON(text, { intent: 'unknown', params: {} });
   } catch (err) {
     console.error('Intent detection failed:', err.message);
     return { intent: 'unknown', params: {} };
@@ -99,7 +118,6 @@ async function chat(userMessage, lang, conversationHistory = [], contextData = {
 
 // ============================================================
 // SEARCH QUERY EXTRACTION
-// Normalize user's message into structured search params
 // ============================================================
 
 async function extractSearchParams(message, lang) {
@@ -120,7 +138,7 @@ All fields optional. country is "HT" for Haiti, "US", "CA" for diaspora. city in
       messages: [{ role: 'user', content: prompt }],
     });
     const text = res.content[0]?.text?.trim() || '{}';
-    return JSON.parse(text);
+    return safeParseJSON(text, { query: message });
   } catch {
     return { query: message };
   }
@@ -128,7 +146,6 @@ All fields optional. country is "HT" for Haiti, "US", "CA" for diaspora. city in
 
 // ============================================================
 // REMITTANCE PARSER
-// Extract split details from a pay request
 // ============================================================
 
 async function parseRemittanceRequest(message, lang) {
@@ -155,7 +172,7 @@ All fields optional except at least one split.`;
       messages: [{ role: 'user', content: prompt }],
     });
     const text = res.content[0]?.text?.trim() || '{}';
-    return JSON.parse(text);
+    return safeParseJSON(text, { splits: [{ type: 'general' }] });
   } catch {
     return { splits: [{ type: 'general' }] };
   }
