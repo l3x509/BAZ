@@ -273,4 +273,34 @@ async function clearPendingMode(user) {
   await db.updateSessionState(user.id, state);
 }
 
-module.exports = { route };
+// ════════════════════════════════════════════════════════════
+// PROCESS MESSAGE
+// Entry point called by webhook.js.
+// Handles user lookup, history fetch, and lang resolution
+// before delegating to route().
+// ════════════════════════════════════════════════════════════
+
+async function processMessage({ waId, displayName, messageId, messageType, content }) {
+  // Get or create user record (sets language, role, session_state)
+  const user = await db.getOrCreateUser(waId, displayName);
+
+  // Pull recent conversation history for Claude context
+  const conversationHistory = await db.getConversationHistory(waId);
+
+  // Language from user record — set during onboarding or lang switch
+  const lang = user.language || 'en';
+
+  // Log inbound message
+  await db.logMessage({
+    waId,
+    direction:   'inbound',
+    messageType,
+    content,
+    messageId,
+  });
+
+  // Route
+  await route({ user, message: content, lang, conversationHistory });
+}
+
+module.exports = { route, processMessage };
