@@ -1,213 +1,276 @@
-const db = require('./db');
-const wa = require('./whatsapp');
-const { detectIntent, chat } = require('./claude');
-const { handleFind, handleBusinessSelected, handleContactBusiness } = require('./handlers/find');
-const { handlePay, handlePayConfirm, handlePayCancel } = require('./handlers/pay');
-const { handleOnboard } = require('./handlers/onboard');
-const { handleStatus } = require('./handlers/status');
-const { emit } = require('./utils/events');
-
 // ============================================================
-// MAIN ENTRY POINT
-// Called by webhook.js for every valid inbound message
+// BAZ + VITRIN — ROUTER
+// Two-step routing: topic detection → mode resolution → handler
+//
+// FLOW:
+//   Message arrives
+//     ↓
+//   [Pending mode?] → user responded to a menu → resolve → dispatch
+//     ↓ (no pending)
+//   detectTopic() → what is this about?
+//     ↓
+//   Category?  → getModeOptions()
+//     → 1 mode  → dispatch directly (no menu)
+//     → N modes → present numbered menu, save pending state
+//   Pay/Onboard/Status/Greeting → dispatch directly
+//   Unknown → ask for clarification
+//
+// SESSION STATE (stored in users.session_state JSONB):
+//   pending_mode: {
+//     category_slug: 'hair_beauty',
+//     options: [{ num, mode, label, handler }],
+//     expires_at: <timestamp ms>
+//   }
 // ============================================================
 
-async function processMessage({ waId, displayName, messageId, messageType, content }) {
-  // 1. Get or create user
-  const user = await db.getOrCreateUser(waId, displayName);
-  const lang = user.language || 'en';
+const { detectTopic }                              = require('./claude');
+const { getModeOptions, bySlug }                   = require('./config/categories');
+const { sendText }                                 = require('./whatsapp');
+const db                                           = require('./db');
 
-  // 2. Get or create active conversation
-  let conversation = await db.getActiveConversation(user.id);
-  if (!conversation) {
-    conversation = await db.createConversation(user.id, waId);
+// ── HANDLERS ────────────────────────────────────────────────
+const findHandler    = require('./handlers/find');
+const payHandler     = require('./handlers/pay');
+const onboardHandler = require('./handlers/onboard');
+const statusHandler  = require('./handlers/status');
+const vitrinBuy      = require('./handlers/vitrin-buy');
+const vitrinSell     = require('./handlers/vitrin-sell');
+const vitrinOrder    = require('./handlers/vitrin-order');
+
+// Handler registry — keyed by MODE_HANDLERS values in categories.js
+const HANDLERS = {
+  find:         findHandler,
+  vitrin_buy:   vitrinBuy,
+  vitrin_sell:  vitrinSell,
+  vitrin_order: vitrinOrder,
+};
+
+// Pending mode menu expires after 5 minutes of inactivity
+const PENDING_TTL_MS = 5 * 60 * 1000;
+
+// ── GREETING COPY (by language) ──────────────────────────────
+const GREETINGS = {
+  ht: `Bonjou! 👋 Mwen se *Baz*.\n\nMwen ka ede w:\n• Jwenn biznis ak sèvis ann Ayiti 🔍\n• Achte ak vann pwodui sou Vitrin 🛍️\n• Peye bil ak voye lajan 💸\n\nEkri sa w bezwen epi m ap ede w!`,
+  en: `Hello! 👋 I'm *Baz*.\n\nI can help you:\n• Find businesses & services in Haiti 🔍\n• Buy & sell products on Vitrin 🛍️\n• Pay bills & send money 💸\n\nJust tell me what you need!`,
+  fr: `Bonjour! 👋 Je suis *Baz*.\n\nJe peux vous aider à:\n• Trouver des entreprises & services en Haïti 🔍\n• Acheter & vendre des produits sur Vitrin 🛍️\n• Payer des factures & envoyer de l'argent 💸\n\nDites-moi ce dont vous avez besoin!`,
+};
+
+// ── UNKNOWN COPY (by language) ───────────────────────────────
+const UNKNOWN = {
+  ht: `Mwen pa konprann. Eseye di m:\n• Sa w ap *chèche* (restoran, plonbye, chofè...)\n• Sa w vle *achte* oswa *vann*\n• Yon *sèvis* ou vle peye`,
+  en: `I didn't quite catch that. Try telling me:\n• What you're *looking for* (restaurant, plumber, driver...)\n• What you want to *buy* or *sell*\n• A *service* you want to pay for`,
+  fr: `Je n'ai pas compris. Essayez de me dire:\n• Ce que vous *cherchez* (restaurant, plombier, chauffeur...)\n• Ce que vous voulez *acheter* ou *vendre*\n• Un *service* que vous souhaitez payer`,
+};
+
+// ── COMING SOON COPY (for unbuilt handlers) ──────────────────
+const COMING_SOON = {
+  ht: `⏳ Fonksyon sa a ap vini byento! Ekri yon lòt bagay pou mwen ede w.`,
+  en: `⏳ This feature is coming soon! Type something else and I'll help you.`,
+  fr: `⏳ Cette fonctionnalité arrive bientôt! Écrivez autre chose pour que je vous aide.`,
+};
+
+// ════════════════════════════════════════════════════════════
+// MAIN ROUTE FUNCTION
+// Called by webhook.js for every incoming message
+// ════════════════════════════════════════════════════════════
+
+async function route({ user, message, lang, conversationHistory }) {
+  const sessionState = user.session_state || {};
+
+  // ── STEP 1: Resolve pending mode selection ─────────────────
+  // User may be responding to a mode menu we sent previously
+  if (sessionState.pending_mode) {
+    const result = await resolvePendingMode({
+      pending: sessionState.pending_mode,
+      message,
+      user,
+      lang,
+      conversationHistory,
+    });
+
+    // Resolved — handler already dispatched, we're done
+    if (result === true) return;
+
+    // Not a menu response — clear pending state and fall through
+    await clearPendingMode(user);
   }
 
-  // 3. Log inbound message
-  await db.logMessage({
-    conversationId: conversation.id,
-    userId: user.id,
-    direction: 'inbound',
-    messageType,
-    content,
-    metaMessageId: messageId,
-  });
+  // ── STEP 2: Detect topic ───────────────────────────────────
+  const topic = await detectTopic(message, lang, conversationHistory);
 
-  // 4. Emit session event
-  await emit('message_received', { user, conversation });
+  console.log(`[router] topic=${JSON.stringify(topic)} lang=${lang}`);
 
-  // ============================================================
-  // FIRST-TIME USER: language selection
-  // ============================================================
-  if (!user.language) {
-    // Check if this is a language button reply
-    if (content === 'lang_ht' || content === 'lang_en' || content === 'lang_fr') {
-      const lang = content.replace('lang_', '');
-      await db.setUserLanguage(user.id, lang);
-      await emit('language_selected', { user, conversation, payload: { language: lang } });
-      await sendWelcomeMessage(user, conversation, lang);
-      return;
-    }
+  // ── STEP 3: Route ──────────────────────────────────────────
+  switch (topic.type) {
 
-    // Not yet set — send language selection
-    await wa.sendLanguageSelection(waId);
-    return;
-  }
-
-  // ============================================================
-  // BUTTON / LIST REPLY ROUTING
-  // Handle interactive responses first (they have structured IDs)
-  // ============================================================
-  if (messageType === 'button' || messageType === 'list') {
-    await routeInteractive({ user, conversation, content, lang });
-    return;
-  }
-
-  // ============================================================
-  // IN-PROGRESS ONBOARDING
-  // If user is mid-flow, continue that flow
-  // ============================================================
-  if (conversation.intent === 'onboard' && conversation.state?.onboard_step) {
-    await handleOnboard({ user, conversation, content, lang });
-    return;
-  }
-
-  // ============================================================
-  // INTENT DETECTION
-  // ============================================================
-  const { intent, params } = await detectIntent(content, lang, buildHistory(conversation));
-
-  // ============================================================
-  // ROUTE BY INTENT
-  // ============================================================
-  switch (intent) {
-    case 'find':
-      await handleFind({ user, conversation, content, lang, params });
-      break;
+    case 'category':
+      return handleCategory({
+        slug: topic.category_slug,
+        user, message, lang, conversationHistory,
+      });
 
     case 'pay':
-      await handlePay({ user, conversation, content, lang });
-      break;
+      return payHandler.handle({ user, message, lang, conversationHistory });
 
     case 'onboard':
-      await handleOnboard({ user, conversation, content: 'start', lang });
-      break;
+      return onboardHandler.handle({ user, message, lang, conversationHistory });
 
     case 'status':
-      await handleStatus({ user, conversation, lang });
-      break;
+      return statusHandler.handle({ user, message, lang, conversationHistory });
 
     case 'greeting':
-      await handleGreeting({ user, conversation, lang });
-      break;
+      return sendText(user.whatsapp_id, GREETINGS[lang] || GREETINGS.en);
 
     default:
-      // Fall back to general Claude conversation
-      const reply = await chat(content, lang, buildHistory(conversation));
-      await wa.sendText(waId, reply);
+      return sendText(user.whatsapp_id, UNKNOWN[lang] || UNKNOWN.en);
   }
 }
 
-// ============================================================
-// INTERACTIVE BUTTON/LIST ROUTING
-// ============================================================
+// ════════════════════════════════════════════════════════════
+// CATEGORY HANDLER
+// Checks available modes and either routes directly or shows a menu
+// ════════════════════════════════════════════════════════════
 
-async function routeInteractive({ user, conversation, content, lang }) {
-  // Business selected from list
-  if (content.startsWith('biz_')) {
-    const businessId = content.replace('biz_', '');
-    await handleBusinessSelected({ user, conversation, businessId, lang });
-    return;
+async function handleCategory({ slug, user, message, lang, conversationHistory }) {
+  const options = getModeOptions(slug, lang);
+
+  if (!options.length) {
+    return sendText(user.whatsapp_id, UNKNOWN[lang] || UNKNOWN.en);
   }
 
-  // Contact a business
-  if (content.startsWith('contact_')) {
-    const businessId = content.replace('contact_', '');
-    await handleContactBusiness({ user, conversation, businessId, lang });
-    return;
+  // Single mode — route directly, no menu friction
+  if (options.length === 1) {
+    return dispatch(options[0].handler, {
+      user, message, lang, conversationHistory,
+      category: slug,
+      mode: options[0].mode,
+    });
   }
 
-  // Book a business
-  if (content.startsWith('book_')) {
-    const businessId = content.replace('book_', '');
-    await wa.sendText(user.whatsapp_id, getMsg('booking_coming_soon', lang));
-    return;
-  }
+  // Multiple modes — present numbered menu
+  const cat = bySlug(slug);
+  const menuText = buildModeMenu(cat, options, lang);
 
-  // Pay flow
-  if (content === 'pay_confirm') {
-    await handlePayConfirm({ user, conversation, lang });
-    return;
-  }
-
-  if (content === 'pay_cancel') {
-    await handlePayCancel({ user, conversation, lang });
-    return;
-  }
-
-  // Onboard flow
-  if (content === 'onboard_confirm' || content === 'onboard_cancel') {
-    await handleOnboard({ user, conversation, content, lang });
-    return;
-  }
-
-  // Category selected during onboarding
-  if (content.startsWith('cat_')) {
-    const slug = content.replace('cat_', '');
-    await handleOnboard({ user, conversation, content: slug, lang });
-    return;
-  }
-
-  // Unknown interactive — treat as text
-  await processMessage({ waId: user.whatsapp_id, messageType: 'text', content });
+  await savePendingMode(user, slug, options);
+  return sendText(user.whatsapp_id, menuText);
 }
 
-// ============================================================
-// GREETING
-// ============================================================
+// ════════════════════════════════════════════════════════════
+// PENDING MODE RESOLUTION
+// User sent a follow-up to a mode menu
+// ════════════════════════════════════════════════════════════
 
-async function handleGreeting({ user, conversation, lang }) {
-  const name = user.name ? `, ${user.name.split(' ')[0]}` : '';
-  const msgs = {
-    ht: `👋 Bonjou${name}! Mwen se Baz.\n\nKijan mwen ka ede ou jodi a?\n\n• 🔍 Jwenn yon biznis (plonbye, chofè, pwofesè...)\n• 💸 Peye pou yon sèvis an Ayiti\n• 🏪 Anrejistre biznis ou`,
-    en: `👋 Hey${name}! I'm Baz.\n\nHow can I help you today?\n\n• 🔍 Find a business (plumber, driver, tutor...)\n• 💸 Pay for a service in Haiti\n• 🏪 List your business`,
-    fr: `👋 Bonjour${name}! Je suis Baz.\n\nComment puis-je vous aider?\n\n• 🔍 Trouver une entreprise (plombier, chauffeur, tuteur...)\n• 💸 Payer pour un service en Haïti\n• 🏪 Lister votre entreprise`,
+async function resolvePendingMode({ pending, message, user, lang, conversationHistory }) {
+  // Expired — treat as a fresh message
+  if (Date.now() > pending.expires_at) {
+    return false;
+  }
+
+  const selected = parseSelection(message, pending.options, lang);
+
+  if (!selected) {
+    // User didn't pick from the menu — re-route their message fresh
+    return false;
+  }
+
+  // Valid selection — dispatch to handler
+  await dispatch(selected.handler, {
+    user, message, lang, conversationHistory,
+    category: pending.category_slug,
+    mode: selected.mode,
+  });
+
+  return true; // signal: handled, stop processing
+}
+
+// ════════════════════════════════════════════════════════════
+// SELECTION PARSER
+// Accepts numbers ("1", "2", "3") or mode keywords in any language
+// ════════════════════════════════════════════════════════════
+
+const MODE_KEYWORDS = {
+  find:         ['find', 'jwenn', 'trouver', 'chercher', 'search', 'chèche', 'look'],
+  buy:          ['buy', 'achte', 'acheter', 'purchase', 'achète', 'shop'],
+  sell:         ['sell', 'vann', 'vendre', 'list', 'vendor', 'vandè'],
+  order:        ['order', 'kòmande', 'commander', 'delivery', 'livrezon', 'livraison'],
+};
+
+function parseSelection(message, options, lang) {
+  const text = message.trim().toLowerCase();
+
+  // Number match — most reliable (we present numbered lists)
+  const num = parseInt(text, 10);
+  if (!isNaN(num) && num >= 1 && num <= options.length) {
+    return options.find(o => o.num === num) || null;
+  }
+
+  // Keyword match across all languages
+  for (const option of options) {
+    const keywords = MODE_KEYWORDS[option.mode] || [];
+    if (keywords.some(kw => text.includes(kw))) {
+      return option;
+    }
+  }
+
+  return null;
+}
+
+// ════════════════════════════════════════════════════════════
+// HANDLER DISPATCH
+// Routes to the right handler module
+// ════════════════════════════════════════════════════════════
+
+async function dispatch(handlerName, context) {
+  const handler = HANDLERS[handlerName];
+
+  if (!handler || typeof handler.handle !== 'function') {
+    console.warn(`[router] No handler for: ${handlerName}`);
+    return sendText(
+      context.user.whatsapp_id,
+      COMING_SOON[context.lang] || COMING_SOON.en
+    );
+  }
+
+  return handler.handle(context);
+}
+
+// ════════════════════════════════════════════════════════════
+// MODE MENU BUILDER
+// Builds the WhatsApp-ready numbered option string
+// ════════════════════════════════════════════════════════════
+
+function buildModeMenu(cat, options, lang) {
+  const prompts = {
+    ht: `Ki sa w bezwen pou *${cat.name.ht}*? ${cat.icon}`,
+    en: `What do you need for *${cat.name.en}*? ${cat.icon}`,
+    fr: `Qu'avez-vous besoin pour *${cat.name.fr}*? ${cat.icon}`,
   };
-  await wa.sendText(user.whatsapp_id, msgs[lang] || msgs.en);
+
+  const header = prompts[lang] || prompts.en;
+  const list   = options.map(o => `${o.num}. ${o.label}`).join('\n');
+
+  return `${header}\n\n${list}`;
 }
 
-// ============================================================
-// WELCOME MESSAGE (after language selected)
-// ============================================================
+// ════════════════════════════════════════════════════════════
+// SESSION STATE HELPERS
+// ════════════════════════════════════════════════════════════
 
-async function sendWelcomeMessage(user, conversation, lang) {
-  const msgs = {
-    ht: `✅ *Bon chwazi!*\n\n👋 Byenveni sou *Baz* — anyè ak mache sèvis pou kominote ayisyen an.\n\nMwen ka ede ou:\n• 🔍 Jwenn yon biznis oswa pwofesyonèl\n• 💸 Peye pou sèvis an Ayiti (ekolaj, komisyon, elektrisite)\n• 🏪 Anrejistre pwòp biznis ou\n\nKomanse pale — di m sa ou bezwen!`,
-    en: `✅ *Great choice!*\n\n👋 Welcome to *Baz* — the directory and marketplace for the Haitian community.\n\nI can help you:\n• 🔍 Find a business or professional\n• 💸 Pay for services in Haiti (school fees, groceries, electricity)\n• 🏪 List your own business\n\nJust tell me what you need!`,
-    fr: `✅ *Excellent choix!*\n\n👋 Bienvenue sur *Baz* — l'annuaire et marketplace pour la communauté haïtienne.\n\nJe peux vous aider à:\n• 🔍 Trouver une entreprise ou un professionnel\n• 💸 Payer des services en Haïti (frais scolaires, courses, électricité)\n• 🏪 Inscrire votre propre entreprise\n\nDites-moi ce dont vous avez besoin!`,
-  };
-  await wa.sendText(user.whatsapp_id, msgs[lang] || msgs.en);
-}
-
-// ============================================================
-// HELPERS
-// ============================================================
-
-function buildHistory(conversation) {
-  // Lightweight — just the state context for now
-  // Full message history would require a separate query
-  return [];
-}
-
-function getMsg(key, lang) {
-  const msgs = {
-    booking_coming_soon: {
-      ht: '📅 Fonksyon rezèvasyon an ap vini byento. Pou kounye a, kontakte biznis la dirèkteman.',
-      en: '📅 Booking feature coming soon. For now, contact the business directly.',
-      fr: '📅 La fonction de réservation arrive bientôt. Pour l\'instant, contactez l\'entreprise directement.',
+async function savePendingMode(user, slug, options) {
+  await db.updateSessionState(user.id, {
+    ...user.session_state,
+    pending_mode: {
+      category_slug: slug,
+      options,
+      expires_at: Date.now() + PENDING_TTL_MS,
     },
-  };
-  return msgs[key]?.[lang] || msgs[key]?.en || '';
+  });
 }
 
-module.exports = { processMessage };
+async function clearPendingMode(user) {
+  const state = { ...(user.session_state || {}) };
+  delete state.pending_mode;
+  await db.updateSessionState(user.id, state);
+}
+
+module.exports = { route };
