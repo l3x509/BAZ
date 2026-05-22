@@ -329,13 +329,13 @@ const categories = [
     name: { en: 'Food Products', ht: 'Pwodui Manje', fr: 'Produits Alimentaires' },
     description: {
       en: 'Packaged Haitian food, sauces, spices, and specialty foods',
-      ht: 'Manje ayisyen an bouat, sòs, epis, ak manje espesyal',
+      ht: 'Manje ayisyen an bwat, sòs, epis, ak manje espesyal',
       fr: 'Plats haïtiens emballés, sauces, épices et spécialités culinaires',
     },
     // ⚠️ CULTURAL FLAG: Review Kreyòl food terms with direct knowledge
     keywords: {
       en: ['food products', 'sauce', 'spices', 'packaged food', 'hot sauce', 'pikliz', 'seasoning', 'epis'],
-      ht: ['pwodui manje', 'sòs', 'epis', 'manje an bouat', 'pikliz', 'asaizonman', 'bon gou'],
+      ht: ['pwodui manje', 'sòs', 'epis', 'manje an bwat', 'pikliz', 'asaizonman', 'bon gou'],
       fr: ['produits alimentaires', 'sauce', 'épices', 'aliments emballés', 'condiments', 'assaisonnement'],
     },
   },
