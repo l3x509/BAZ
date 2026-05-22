@@ -10,7 +10,6 @@ const supabase = createClient(
 // ============================================================
 
 async function getOrCreateUser(waId, displayName = '') {
-  // Try to find existing user
   const { data: existing } = await supabase
     .from('users')
     .select('*')
@@ -18,7 +17,6 @@ async function getOrCreateUser(waId, displayName = '') {
     .single();
 
   if (existing) {
-    // Update last seen
     await supabase
       .from('users')
       .update({ last_seen_at: new Date().toISOString() })
@@ -26,7 +24,6 @@ async function getOrCreateUser(waId, displayName = '') {
     return existing;
   }
 
-  // Create new user
   const { data: newUser, error } = await supabase
     .from('users')
     .insert({
@@ -55,6 +52,11 @@ async function setUserLanguage(userId, language) {
 
 async function setUserSessionState(userId, state) {
   return updateUser(userId, { session_state: state });
+}
+
+// Alias used by router.js
+async function updateSessionState(userId, state) {
+  return setUserSessionState(userId, state);
 }
 
 // ============================================================
@@ -109,11 +111,11 @@ async function logMessage({ conversationId, userId, direction, messageType, cont
     .from('messages')
     .insert({
       conversation_id: conversationId,
-      user_id: userId,
+      user_id:         userId,
       direction,
-      message_type: messageType,
+      message_type:    messageType,
       content,
-      media_url: mediaUrl || null,
+      media_url:       mediaUrl    || null,
       meta_message_id: metaMessageId || null,
     });
   if (error) console.error('Failed to log message:', error.message);
@@ -127,6 +129,36 @@ async function isDuplicate(metaMessageId) {
     .limit(1)
     .single();
   return !!data;
+}
+
+// ============================================================
+// CONVERSATION HISTORY
+// Returns the last N messages formatted for Claude:
+//   [{ role: 'user'|'assistant', content: string }]
+// Called by router.js to give Claude conversation context.
+// ============================================================
+
+async function getConversationHistory(conversationId, limit = 10) {
+  if (!conversationId) return [];
+
+  const { data, error } = await supabase
+    .from('messages')
+    .select('direction, content')
+    .eq('conversation_id', conversationId)
+    .not('content', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error || !data?.length) return [];
+
+  // Reverse to chronological order, format for Claude API
+  return data
+    .reverse()
+    .map(m => ({
+      role:    m.direction === 'inbound' ? 'user' : 'assistant',
+      content: m.content.trim(),
+    }))
+    .filter(m => m.content);
 }
 
 // ============================================================
@@ -144,7 +176,6 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5 
     .limit(limit);
 
   if (categorySlug) {
-    // Join through category
     const { data: cat } = await supabase
       .from('service_categories')
       .select('id')
@@ -153,16 +184,13 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5 
     if (cat) q = q.eq('category_id', cat.id);
   }
 
-  if (city) q = q.ilike('city', `%${city}%`);
+  if (city)    q = q.ilike('city', `%${city}%`);
   if (country) q = q.eq('country', country);
+  if (query)   q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
 
-  if (query) {
-    q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
-  }
-
-  // Featured first, then by rating
-  q = q.order('is_featured', { ascending: false })
-       .order('avg_rating', { ascending: false });
+  q = q
+    .order('is_featured', { ascending: false })
+    .order('avg_rating',  { ascending: false });
 
   const { data, error } = await q;
   if (error) throw new Error(`Search failed: ${error.message}`);
@@ -196,13 +224,13 @@ async function createBooking({ userId, businessId, categoryId, description, sche
   const { data, error } = await supabase
     .from('bookings')
     .insert({
-      user_id: userId,
-      business_id: businessId,
-      category_id: categoryId,
+      user_id:        userId,
+      business_id:    businessId,
+      category_id:    categoryId,
       description,
-      scheduled_at: scheduledAt || null,
-      price_estimate: priceEstimate || null,
-      notes: notes || null,
+      scheduled_at:   scheduledAt    || null,
+      price_estimate: priceEstimate  || null,
+      notes:          notes          || null,
     })
     .select()
     .single();
@@ -222,7 +250,6 @@ async function createInquiry({ userId, businessId, message }) {
     .single();
   if (error) throw new Error(`Failed to create inquiry: ${error.message}`);
 
-  // Increment business inquiry count
   await supabase.rpc('increment_inquiry_count', { business_id: businessId }).catch(() => {});
 
   return data;
@@ -230,42 +257,51 @@ async function createInquiry({ userId, businessId, message }) {
 
 // ============================================================
 // EVENTS (TWINZILE FEED — append only)
+// Enable by setting TWINZILE_ENABLED=true in Railway env vars.
 // ============================================================
 
 async function logEvent({ eventType, userId, sessionId, entityType, entityId, payload, city, country }) {
-  if (process.env.TWINZILE_ENABLED !== 'true') return; // off by default
+  if (process.env.TWINZILE_ENABLED !== 'true') return;
 
   const { error } = await supabase
     .from('events')
     .insert({
-      event_type: eventType,
-      user_id: userId || null,
-      session_id: sessionId || null,
-      entity_type: entityType || null,
-      entity_id: entityId || null,
-      payload: payload || {},
-      city: city || null,
-      country: country || null,
+      event_type:  eventType,
+      user_id:     userId      || null,
+      session_id:  sessionId   || null,
+      entity_type: entityType  || null,
+      entity_id:   entityId    || null,
+      payload:     payload     || {},
+      city:        city        || null,
+      country:     country     || null,
     });
 
   if (error) console.error('Event log failed:', error.message);
 }
 
 module.exports = {
+  // Users
   getOrCreateUser,
   updateUser,
   setUserLanguage,
   setUserSessionState,
+  updateSessionState,       // alias used by router.js
+  // Conversations
   getActiveConversation,
   createConversation,
   updateConversation,
   closeConversation,
+  getConversationHistory,   // used by router.js for Claude context
+  // Messages
   logMessage,
   isDuplicate,
+  // Businesses
   searchBusinesses,
   getBusinessById,
   getCategories,
+  // Bookings & Inquiries
   createBooking,
   createInquiry,
+  // Events
   logEvent,
 };
