@@ -24,3 +24,9 @@
     "nodemon": "^3.0.0"
   }
 }
+{
+  "scripts": {
+    "prestart": "node scripts/sync-categories.js",
+    "start": "node server.js"
+  }
+}
