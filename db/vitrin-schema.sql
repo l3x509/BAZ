@@ -48,24 +48,14 @@ CREATE TABLE vitrin_categories (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Seed from categories.js product + hybrid types
--- (sync-categories.js handles this — manual seed shown for reference)
-INSERT INTO vitrin_categories (slug, name_en, name_ht, name_fr, icon, sort_order) VALUES
-  ('grocery',        'Grocery',               'Komisyon',           'Épicerie',                  '🛒', 20),
-  ('hair_beauty',    'Hair & Beauty',          'Cheve ak Bote',      'Cheveux & Beauté',           '💇', 21),
-  ('fashion',        'Fashion & Clothing',     'Rad ak Mòd',         'Mode & Vêtements',           '👗', 22),
-  ('food_products',  'Food Products',          'Pwodui Manje',       'Produits Alimentaires',      '🫙', 23),
-  ('crafts',         'Crafts & Handmade',      'Atizana',            'Artisanat',                  '🧺', 30),
-  ('art',            'Art & Paintings',        'Atizay ak Penti',    'Art & Peintures',            '🎨', 31),
-  ('jewelry',        'Jewelry & Accessories',  'Bijou ak Akseswa',   'Bijoux & Accessoires',       '💎', 32),
-  ('music',          'Music & Instruments',    'Mizik ak Enstriman', 'Musique & Instruments',      '🎵', 33),
-  ('home_decor',     'Home & Decor',           'Kay ak Dekorasyon',  'Maison & Décoration',        '🏠', 34)
-ON CONFLICT (slug) DO UPDATE SET
-  name_en    = EXCLUDED.name_en,
-  name_ht    = EXCLUDED.name_ht,
-  name_fr    = EXCLUDED.name_fr,
-  icon       = EXCLUDED.icon,
-  sort_order = EXCLUDED.sort_order;
+-- ⚠️  NO HARDCODED SEED DATA HERE
+-- vitrin_categories is synced from categories.js via:
+--   node agent/scripts/sync-categories.js
+--
+-- Adding or removing a Vitrin category:
+--   1. Edit agent/config/categories.js
+--   2. Run: node agent/scripts/sync-categories.js
+--   Done. Both service_categories and vitrin_categories stay in sync.
 
 -- ─────────────────────────────────────────────
 -- PRODUCTS
