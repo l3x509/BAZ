@@ -1,34 +1,38 @@
 // ============================================================
 // BAZ + VITRIN — ROUTER
+//
 // Two-step routing: topic detection → mode resolution → handler
 //
 // FLOW:
-//   Message arrives
-//     ↓
-//   [Pending mode?] → user responded to a menu → resolve → dispatch
-//     ↓ (no pending)
-//   detectTopic() → what is this about?
-//     ↓
-//   Category?  → getModeOptions()
-//     → 1 mode  → dispatch directly (no menu)
-//     → N modes → present numbered menu, save pending state
-//   Pay/Onboard/Status/Greeting → dispatch directly
-//   Unknown → ask for clarification
+//   processMessage()            ← called by webhook.js
+//     → sanitize input
+//     → get/create user
+//     → get conversation history
+//     → route()
+//         → pending mode?  → resolve selection → dispatch
+//         → detectTopic()  → category | pay | onboard | status | greeting
+//             → category, 1 mode  → dispatch directly
+//             → category, N modes → present menu, save pending state
+//             → pay/onboard/status/greeting → dispatch directly
 //
-// SESSION STATE (stored in users.session_state JSONB):
+// SESSION STATE (users.session_state JSONB):
 //   pending_mode: {
-//     category_slug: 'hair_beauty',
-//     options: [{ num, mode, label, handler }],
-//     expires_at: <timestamp ms>
+//     category_slug: string,
+//     city:          string | null,   ← preserved from original message
+//     country:       string | null,
+//     options:       [{ num, mode, label, handler }],
+//     expires_at:    number (ms timestamp)
 //   }
 // ============================================================
 
-const { detectTopic }                              = require('./claude');
-const { getModeOptions, bySlug }                   = require('./config/categories');
-const { sendText }                                 = require('./whatsapp');
-const db                                           = require('./db');
+'use strict';
 
-// ── HANDLERS ────────────────────────────────────────────────
+const { detectTopic }          = require('./claude');
+const { getModeOptions, bySlug } = require('./config/categories');
+const { sendText }             = require('./whatsapp');
+const db                       = require('./db');
+
+// ── HANDLERS ─────────────────────────────────────────────────
 const findHandler    = require('./handlers/find');
 const payHandler     = require('./handlers/pay');
 const onboardHandler = require('./handlers/onboard');
@@ -37,7 +41,6 @@ const vitrinBuy      = require('./handlers/vitrin-buy');
 const vitrinSell     = require('./handlers/vitrin-sell');
 const vitrinOrder    = require('./handlers/vitrin-order');
 
-// Handler registry — keyed by MODE_HANDLERS values in categories.js
 const HANDLERS = {
   find:         findHandler,
   vitrin_buy:   vitrinBuy,
@@ -45,69 +48,138 @@ const HANDLERS = {
   vitrin_order: vitrinOrder,
 };
 
-// Pending mode menu expires after 5 minutes of inactivity
+// Pending mode menu expires after 5 minutes
 const PENDING_TTL_MS = 5 * 60 * 1000;
 
-// ── GREETING COPY (by language) ──────────────────────────────
-const GREETINGS = {
-  ht: `Bonjou! 👋 Mwen se *Baz*.\n\nMwen ka ede w:\n• Jwenn biznis ak sèvis ann Ayiti 🔍\n• Achte ak vann pwodui sou Vitrin 🛍️\n• Peye bil ak voye lajan 💸\n\nEkri sa w bezwen epi m ap ede w!`,
-  en: `Hello! 👋 I'm *Baz*.\n\nI can help you:\n• Find businesses & services in Haiti 🔍\n• Buy & sell products on Vitrin 🛍️\n• Pay bills & send money 💸\n\nJust tell me what you need!`,
-  fr: `Bonjour! 👋 Je suis *Baz*.\n\nJe peux vous aider à:\n• Trouver des entreprises & services en Haïti 🔍\n• Acheter & vendre des produits sur Vitrin 🛍️\n• Payer des factures & envoyer de l'argent 💸\n\nDites-moi ce dont vous avez besoin!`,
+// Max message length we'll process (WhatsApp max is 4096)
+const MAX_MESSAGE_LENGTH = 1000;
+
+// ── COPY ─────────────────────────────────────────────────────
+const COPY = {
+  greeting: {
+    ht: `Bonjou! 👋 Mwen se *Baz*.\n\nMwen ka ede w:\n• Jwenn biznis ak sèvis ann Ayiti 🔍\n• Achte ak vann sou Vitrin 🛍️\n• Voye lajan ann Ayiti 💸\n\nEkri sa w bezwen!`,
+    en: `Hello! 👋 I'm *Baz*.\n\nI can help you:\n• Find businesses & services in Haiti 🔍\n• Buy & sell on Vitrin 🛍️\n• Send money to Haiti 💸\n\nJust tell me what you need!`,
+    fr: `Bonjour! 👋 Je suis *Baz*.\n\nJe peux vous aider à:\n• Trouver des entreprises en Haïti 🔍\n• Acheter & vendre sur Vitrin 🛍️\n• Envoyer de l'argent en Haïti 💸\n\nDites-moi ce dont vous avez besoin!`,
+  },
+  unknown: {
+    ht: `Mwen pa konprann. Eseye di m:\n• Sa w ap *chèche* (restoran, plonbye, chofè...)\n• Sa w vle *achte* oswa *vann*\n• Ou vle *voye lajan* ann Ayiti`,
+    en: `I didn't catch that. Try:\n• What you're *looking for* (restaurant, plumber, driver...)\n• What you want to *buy* or *sell*\n• Sending *money to Haiti*`,
+    fr: `Je n'ai pas compris. Essayez:\n• Ce que vous *cherchez* (restaurant, plombier, chauffeur...)\n• Ce que vous voulez *acheter* ou *vendre*\n• Envoyer de *l'argent en Haïti*`,
+  },
+  comingSoon: {
+    ht: `⏳ Fonksyon sa a ap vini byento! Ekri yon lòt bagay.`,
+    en: `⏳ This feature is coming soon! Type something else.`,
+    fr: `⏳ Cette fonctionnalité arrive bientôt! Écrivez autre chose.`,
+  },
 };
 
-// ── UNKNOWN COPY (by language) ───────────────────────────────
-const UNKNOWN = {
-  ht: `Mwen pa konprann. Eseye di m:\n• Sa w ap *chèche* (restoran, plonbye, chofè...)\n• Sa w vle *achte* oswa *vann*\n• Yon *sèvis* ou vle peye`,
-  en: `I didn't quite catch that. Try telling me:\n• What you're *looking for* (restaurant, plumber, driver...)\n• What you want to *buy* or *sell*\n• A *service* you want to pay for`,
-  fr: `Je n'ai pas compris. Essayez de me dire:\n• Ce que vous *cherchez* (restaurant, plombier, chauffeur...)\n• Ce que vous voulez *acheter* ou *vendre*\n• Un *service* que vous souhaitez payer`,
-};
-
-// ── COMING SOON COPY (for unbuilt handlers) ──────────────────
-const COMING_SOON = {
-  ht: `⏳ Fonksyon sa a ap vini byento! Ekri yon lòt bagay pou mwen ede w.`,
-  en: `⏳ This feature is coming soon! Type something else and I'll help you.`,
-  fr: `⏳ Cette fonctionnalité arrive bientôt! Écrivez autre chose pour que je vous aide.`,
-};
+// ── INJECTION PATTERNS ────────────────────────────────────────
+// Heuristic detection only — Claude's system prompt takes priority,
+// but we log suspicious messages for monitoring.
+const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|prompts?|rules?)/i,
+  /you\s+are\s+now\s+(a|an|the)/i,
+  /forget\s+(everything|all|your|previous)/i,
+  /new\s+instructions?\s*:/i,
+  /\[SYSTEM\]/i,
+  /<<SYS>>/i,
+];
 
 // ════════════════════════════════════════════════════════════
-// MAIN ROUTE FUNCTION
-// Called by webhook.js for every incoming message
+// INPUT SANITIZATION
+// Call this on every raw message before processing.
+// ════════════════════════════════════════════════════════════
+
+function sanitize(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+
+  // Trim and enforce length cap
+  let text = raw.trim().slice(0, MAX_MESSAGE_LENGTH);
+
+  if (!text) return null;
+
+  // Log potential prompt injection attempts (don't block — Claude's
+  // system prompt is authoritative, but we want visibility)
+  for (const pattern of INJECTION_PATTERNS) {
+    if (pattern.test(text)) {
+      console.warn('[router] Potential injection detected:', text.slice(0, 120));
+      break;
+    }
+  }
+
+  return text;
+}
+
+// ════════════════════════════════════════════════════════════
+// PROCESS MESSAGE
+// Entry point called by webhook.js.
+// ════════════════════════════════════════════════════════════
+
+async function processMessage({ waId, displayName, messageId, messageType, content }) {
+  // Sanitize first — before any DB or API calls
+  const message = sanitize(content);
+  if (!message) {
+    console.log('[router] Empty or invalid message, skipping');
+    return;
+  }
+
+  // Get or create user
+  const user = await db.getOrCreateUser(waId, displayName);
+  const lang = user.language || 'en';
+
+  // Get or create active conversation
+  let conversation = await db.getActiveConversation(user.id);
+  if (!conversation) {
+    conversation = await db.createConversation(user.id, waId);
+  }
+
+  // Pull recent messages as Claude context
+  const conversationHistory = await db.getConversationHistory(conversation.id);
+
+  // Log inbound message with correct signature
+  await db.logMessage({
+    conversationId: conversation.id,
+    userId:         user.id,
+    direction:      'inbound',
+    messageType,
+    content:        message,
+    metaMessageId:  messageId,
+  });
+
+  // Route
+  await route({ user, message, lang, conversationHistory });
+}
+
+// ════════════════════════════════════════════════════════════
+// ROUTE
 // ════════════════════════════════════════════════════════════
 
 async function route({ user, message, lang, conversationHistory }) {
   const sessionState = user.session_state || {};
 
-  // ── STEP 1: Resolve pending mode selection ─────────────────
-  // User may be responding to a mode menu we sent previously
+  // STEP 1 — Resolve pending mode selection
   if (sessionState.pending_mode) {
-    const result = await resolvePendingMode({
+    const handled = await resolvePendingMode({
       pending: sessionState.pending_mode,
       message,
       user,
       lang,
       conversationHistory,
     });
-
-    // Resolved — handler already dispatched, we're done
-    if (result === true) return;
-
-    // Not a menu response — clear pending state and fall through
+    if (handled) return;
+    // Not a menu response — clear and fall through to fresh routing
     await clearPendingMode(user);
   }
 
-  // ── STEP 2: Detect topic ───────────────────────────────────
+  // STEP 2 — Detect topic (single API call: intent + category + location)
   const topic = await detectTopic(message, lang, conversationHistory);
 
-  console.log(`[router] topic=${JSON.stringify(topic)} lang=${lang}`);
+  console.log(`[router] topic=${JSON.stringify(topic)} lang=${lang} user=${user.whatsapp_id}`);
 
-  // ── STEP 3: Route ──────────────────────────────────────────
+  // STEP 3 — Route
   switch (topic.type) {
-
     case 'category':
-      return handleCategory({
-        slug: topic.category_slug,
-        user, message, lang, conversationHistory,
-      });
+      return handleCategory({ topic, user, message, lang, conversationHistory });
 
     case 'pay':
       return payHandler.handle({ user, message, lang, conversationHistory });
@@ -119,115 +191,110 @@ async function route({ user, message, lang, conversationHistory }) {
       return statusHandler.handle({ user, message, lang, conversationHistory });
 
     case 'greeting':
-      return sendText(user.whatsapp_id, GREETINGS[lang] || GREETINGS.en);
+      return sendText(user.whatsapp_id, COPY.greeting[lang] || COPY.greeting.en);
 
     default:
-      return sendText(user.whatsapp_id, UNKNOWN[lang] || UNKNOWN.en);
+      return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
   }
 }
 
 // ════════════════════════════════════════════════════════════
 // CATEGORY HANDLER
-// Checks available modes and either routes directly or shows a menu
 // ════════════════════════════════════════════════════════════
 
-async function handleCategory({ slug, user, message, lang, conversationHistory }) {
-  const options = getModeOptions(slug, lang);
+async function handleCategory({ topic, user, message, lang, conversationHistory }) {
+  const { category_slug, city, country } = topic;
+  const options = getModeOptions(category_slug, lang);
 
   if (!options.length) {
-    return sendText(user.whatsapp_id, UNKNOWN[lang] || UNKNOWN.en);
+    return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
   }
 
-  // Single mode — route directly, no menu friction
+  // Single mode — dispatch directly, no menu
   if (options.length === 1) {
     return dispatch(options[0].handler, {
       user, message, lang, conversationHistory,
-      category: slug,
-      mode: options[0].mode,
+      category: category_slug,
+      city:     city   || null,
+      country:  country || null,
+      mode:     options[0].mode,
     });
   }
 
-  // Multiple modes — present numbered menu
-  const cat = bySlug(slug);
+  // Multiple modes — present menu, save pending state with location
+  const cat      = bySlug(category_slug);
   const menuText = buildModeMenu(cat, options, lang);
 
-  await savePendingMode(user, slug, options);
+  await savePendingMode(user, { category_slug, city, country, options });
   return sendText(user.whatsapp_id, menuText);
 }
 
 // ════════════════════════════════════════════════════════════
 // PENDING MODE RESOLUTION
-// User sent a follow-up to a mode menu
 // ════════════════════════════════════════════════════════════
 
 async function resolvePendingMode({ pending, message, user, lang, conversationHistory }) {
-  // Expired — treat as a fresh message
-  if (Date.now() > pending.expires_at) {
-    return false;
-  }
+  if (Date.now() > pending.expires_at) return false;
 
   const selected = parseSelection(message, pending.options, lang);
+  if (!selected) return false;
 
-  if (!selected) {
-    // User didn't pick from the menu — re-route their message fresh
-    return false;
-  }
+  await clearPendingMode(user);
 
-  // Valid selection — dispatch to handler
+  // Pass location preserved from the original message
   await dispatch(selected.handler, {
     user, message, lang, conversationHistory,
     category: pending.category_slug,
-    mode: selected.mode,
+    city:     pending.city    || null,
+    country:  pending.country || null,
+    mode:     selected.mode,
   });
 
-  return true; // signal: handled, stop processing
+  return true;
 }
 
 // ════════════════════════════════════════════════════════════
 // SELECTION PARSER
-// Accepts numbers ("1", "2", "3") or mode keywords in any language
+// Accepts numbers (1/2/3) or mode keywords in any language
 // ════════════════════════════════════════════════════════════
 
 const MODE_KEYWORDS = {
-  find:         ['find', 'jwenn', 'trouver', 'chercher', 'search', 'chèche', 'look'],
-  buy:          ['buy', 'achte', 'acheter', 'purchase', 'achète', 'shop'],
-  sell:         ['sell', 'vann', 'vendre', 'list', 'vendor', 'vandè'],
-  order:        ['order', 'kòmande', 'commander', 'delivery', 'livrezon', 'livraison'],
+  find:        ['find', 'jwenn', 'trouver', 'chercher', 'search', 'chèche'],
+  buy:         ['buy', 'achte', 'acheter', 'purchase', 'achète', 'shop'],
+  sell:        ['sell', 'vann', 'vendre', 'list', 'vandè'],
+  order:       ['order', 'kòmande', 'commander', 'delivery', 'livrezon'],
 };
 
 function parseSelection(message, options, lang) {
   const text = message.trim().toLowerCase();
 
-  // Number match — most reliable (we present numbered lists)
+  // Number match — most reliable
   const num = parseInt(text, 10);
   if (!isNaN(num) && num >= 1 && num <= options.length) {
     return options.find(o => o.num === num) || null;
   }
 
-  // Keyword match across all languages
+  // Keyword match
   for (const option of options) {
     const keywords = MODE_KEYWORDS[option.mode] || [];
-    if (keywords.some(kw => text.includes(kw))) {
-      return option;
-    }
+    if (keywords.some(kw => text.includes(kw))) return option;
   }
 
   return null;
 }
 
 // ════════════════════════════════════════════════════════════
-// HANDLER DISPATCH
-// Routes to the right handler module
+// DISPATCH
 // ════════════════════════════════════════════════════════════
 
 async function dispatch(handlerName, context) {
   const handler = HANDLERS[handlerName];
 
   if (!handler || typeof handler.handle !== 'function') {
-    console.warn(`[router] No handler for: ${handlerName}`);
+    console.warn('[router] No handler for:', handlerName);
     return sendText(
       context.user.whatsapp_id,
-      COMING_SOON[context.lang] || COMING_SOON.en
+      COPY.comingSoon[context.lang] || COPY.comingSoon.en
     );
   }
 
@@ -235,32 +302,30 @@ async function dispatch(handlerName, context) {
 }
 
 // ════════════════════════════════════════════════════════════
-// MODE MENU BUILDER
-// Builds the WhatsApp-ready numbered option string
+// MENU BUILDER
 // ════════════════════════════════════════════════════════════
 
 function buildModeMenu(cat, options, lang) {
-  const prompts = {
+  const header = {
     ht: `Ki sa w bezwen pou *${cat.name.ht}*? ${cat.icon}`,
     en: `What do you need for *${cat.name.en}*? ${cat.icon}`,
     fr: `Qu'avez-vous besoin pour *${cat.name.fr}*? ${cat.icon}`,
   };
-
-  const header = prompts[lang] || prompts.en;
-  const list   = options.map(o => `${o.num}. ${o.label}`).join('\n');
-
-  return `${header}\n\n${list}`;
+  const list = options.map(o => `${o.num}. ${o.label}`).join('\n');
+  return `${header[lang] || header.en}\n\n${list}`;
 }
 
 // ════════════════════════════════════════════════════════════
-// SESSION STATE HELPERS
+// SESSION HELPERS
 // ════════════════════════════════════════════════════════════
 
-async function savePendingMode(user, slug, options) {
+async function savePendingMode(user, { category_slug, city, country, options }) {
   await db.updateSessionState(user.id, {
     ...user.session_state,
     pending_mode: {
-      category_slug: slug,
+      category_slug,
+      city:       city   || null,
+      country:    country || null,
       options,
       expires_at: Date.now() + PENDING_TTL_MS,
     },
@@ -271,36 +336,6 @@ async function clearPendingMode(user) {
   const state = { ...(user.session_state || {}) };
   delete state.pending_mode;
   await db.updateSessionState(user.id, state);
-}
-
-// ════════════════════════════════════════════════════════════
-// PROCESS MESSAGE
-// Entry point called by webhook.js.
-// Handles user lookup, history fetch, and lang resolution
-// before delegating to route().
-// ════════════════════════════════════════════════════════════
-
-async function processMessage({ waId, displayName, messageId, messageType, content }) {
-  // Get or create user record (sets language, role, session_state)
-  const user = await db.getOrCreateUser(waId, displayName);
-
-  // Pull recent conversation history for Claude context
-  const conversationHistory = await db.getConversationHistory(waId);
-
-  // Language from user record — set during onboarding or lang switch
-  const lang = user.language || 'en';
-
-  // Log inbound message
-  await db.logMessage({
-    waId,
-    direction:   'inbound',
-    messageType,
-    content,
-    messageId,
-  });
-
-  // Route
-  await route({ user, message: content, lang, conversationHistory });
 }
 
 module.exports = { route, processMessage };
