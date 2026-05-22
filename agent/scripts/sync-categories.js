@@ -1,115 +1,74 @@
 // ============================================================
-// BAZ — CATEGORY SYNC SCRIPT
-// Single source of truth: agent/config/categories.js
+// BAZ — CATEGORY SYNC
+// Runs automatically as a prestart script before server.js.
+// Upserts service_categories + vitrin_categories from categories.js.
 //
-// Syncs to TWO Supabase tables:
-//   service_categories → service + hybrid categories (Baz directory)
-//   vitrin_categories  → product + hybrid categories (Vitrin marketplace)
+// Called by npm via package.json:
+//   "prestart": "node scripts/sync-categories.js"
 //
-// Run this whenever you add, remove, or edit a category:
-//   node agent/scripts/sync-categories.js
-//
-// Safe to run multiple times — uses upsert on slug.
-// Deactivated categories (is_active: false) are preserved in DB
-// but won't appear in agent results or the website.
+// SAFE TO FAIL: if Supabase is unreachable or the key is wrong,
+// this logs a warning and exits 0 so the server still starts.
+// Categories in the DB stay as-is until the next successful sync.
 // ============================================================
 
-require('dotenv').config({ path: '../.env' });
-const { createClient }                            = require('@supabase/supabase-js');
-const { categories, serviceCategories, productCategories } = require('../config/categories');
+'use strict';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY  // service key bypasses RLS
-);
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+const { createClient }                                         = require('@supabase/supabase-js');
+const { categories, serviceCategories, productCategories }     = require('../config/categories');
 
-// ── HELPERS ──────────────────────────────────────────────────
+// ── GUARD: skip silently if credentials are missing ──────────
+// Prevents crashes in environments where Supabase isn't configured
+const { SUPABASE_URL, SUPABASE_SERVICE_KEY } = process.env;
 
-function toServiceRow(cat) {
-  return {
-    slug:       cat.slug,
-    name_en:    cat.name.en,
-    name_ht:    cat.name.ht,
-    name_fr:    cat.name.fr,
-    icon:       cat.icon,
-    sort_order: cat.sort_order,
-    is_active:  cat.is_active,
-  };
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  console.warn('[sync-categories] Missing SUPABASE_URL or SUPABASE_SERVICE_KEY — skipping sync');
+  process.exit(0);
 }
 
-function toVitrinRow(cat) {
-  return {
-    slug:       cat.slug,
-    name_en:    cat.name.en,
-    name_ht:    cat.name.ht,
-    name_fr:    cat.name.fr,
-    icon:       cat.icon,
-    sort_order: cat.sort_order,
-    is_active:  cat.is_active,
-  };
-}
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
+// ── ROW BUILDERS ─────────────────────────────────────────────
+
+const toRow = cat => ({
+  slug:       cat.slug,
+  name_en:    cat.name.en,
+  name_ht:    cat.name.ht,
+  name_fr:    cat.name.fr,
+  icon:       cat.icon,
+  sort_order: cat.sort_order,
+  is_active:  cat.is_active,
+});
+
+// ── SYNC ONE TABLE ────────────────────────────────────────────
 
 async function syncTable(tableName, rows) {
-  console.log(`\n  Syncing ${rows.length} rows → ${tableName}`);
+  const { error } = await supabase
+    .from(tableName)
+    .upsert(rows.map(toRow), { onConflict: 'slug' });
 
-  let synced = 0;
-  let failed = 0;
-
-  for (const row of rows) {
-    const { error } = await supabase
-      .from(tableName)
-      .upsert(row, { onConflict: 'slug' });
-
-    if (error) {
-      console.error(`    ✗ ${row.slug}: ${error.message}`);
-      failed++;
-    } else {
-      const status = row.is_active ? '✓' : '○';
-      console.log(`    ${status} ${row.slug} — ${row.name_en} / ${row.name_ht}`);
-      synced++;
-    }
-  }
-
-  return { synced, failed };
+  if (error) throw new Error(`${tableName}: ${error.message}`);
+  return rows.length;
 }
 
 // ── MAIN ─────────────────────────────────────────────────────
 
 async function sync() {
-  console.log('\n════════════════════════════════════════');
-  console.log('  BAZ CATEGORY SYNC');
-  console.log(`  Source: agent/config/categories.js`);
-  console.log(`  Total categories: ${categories.length}`);
-  console.log('════════════════════════════════════════');
+  console.log(`[sync-categories] Syncing ${categories.length} categories...`);
 
-  // ── service_categories (Baz directory)
-  // Includes: type=service + type=hybrid
-  console.log('\n📂 service_categories (Baz directory):');
-  const serviceRows = serviceCategories().map(toServiceRow);
-  const s = await syncTable('service_categories', serviceRows);
+  const serviceRows = serviceCategories();
+  const vitrinRows  = productCategories();
 
-  // ── vitrin_categories (Vitrin marketplace)
-  // Includes: type=product + type=hybrid
-  console.log('\n🛍️  vitrin_categories (Vitrin marketplace):');
-  const vitrinRows = productCategories().map(toVitrinRow);
-  const v = await syncTable('vitrin_categories', vitrinRows);
+  const sCount = await syncTable('service_categories', serviceRows);
+  const vCount = await syncTable('vitrin_categories',  vitrinRows);
 
-  // ── Summary
-  const totalSynced = s.synced + v.synced;
-  const totalFailed = s.failed + v.failed;
-
-  console.log('\n════════════════════════════════════════');
-  console.log(`  service_categories: ${s.synced} synced, ${s.failed} failed`);
-  console.log(`  vitrin_categories:  ${v.synced} synced, ${v.failed} failed`);
-  console.log(`  Total: ${totalSynced} synced, ${totalFailed} failed`);
-  console.log('════════════════════════════════════════\n');
-
-  if (totalFailed > 0) {
-    console.error('⚠️  Some rows failed. Check SUPABASE_URL and SUPABASE_SERVICE_KEY in .env\n');
-    process.exit(1);
-  } else {
-    console.log('✅ All categories in sync.\n');
-  }
+  console.log(`[sync-categories] ✓ service_categories: ${sCount} rows`);
+  console.log(`[sync-categories] ✓ vitrin_categories: ${vCount} rows`);
+  console.log(`[sync-categories] Done.`);
 }
 
-sync();
+sync().catch(err => {
+  // Log but never crash — server must start regardless
+  console.warn('[sync-categories] ⚠️  Sync failed (server will still start):', err.message);
+  process.exit(0);
+});
