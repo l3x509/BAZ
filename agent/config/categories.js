@@ -192,7 +192,7 @@ const categories = [
     },
     keywords: {
       en: ['cleaner', 'cleaning', 'housekeeping', 'maid', 'sweep', 'mop', 'janitor', 'tidy'],
-      ht: ['netwayaj', 'mennaj', 'balye', 'mòp', 'pwòp', 'lave', 'ranje'],
+      ht: ['netwayaj', 'mennaj', 'bale', 'mòp', 'pwòp', 'lave', 'ranje'],
       fr: ['nettoyage', 'ménage', 'femme de ménage', 'balayer', 'propre', 'laver', 'ranger'],
     },
   },
@@ -443,6 +443,24 @@ const categories = [
       fr: ['décoration', 'meubles', 'décor', 'maison', 'intérieur', 'lampe', 'tapis'],
     },
   },
+
+           {
+  slug: 'Events',
+  type: 'Entertainment',
+  modes: ['find'],
+  icon: '🎉',
+  sort_order: 35,
+  is_active: true,
+  name: { en: 'Events', ht: 'Evènman' },
+  description: {
+    en: 'Events happening in the community near you',
+    ht: 'Evènman ki programe nan zon lakay ou',
+  },
+  keywords: {
+    en: ['event', 'party', 'dance', 'club', 'ball', 'birthday', 'celebration'],
+    ht: ['evènman', 'fèt', 'danse', 'bal', 'djaz', 'club', 'anivèsè'],
+  },
+},
 
   // ══ CATCH-ALL ══════════════════════════════════════════════
 
