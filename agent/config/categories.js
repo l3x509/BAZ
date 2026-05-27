@@ -553,9 +553,9 @@ const formatModeOptions = (slug, lang = 'en') =>
 const buildKeywordPrompt = () =>
   active()
     .map(c => {
-      const all = [c.slug, ...c.keywords.en, ...c.keywords.ht, ...c.keywords.fr];
+      const all = [c.slug, ...c.keywords.en, ...(c.keywords.ht || []), ...(c.keywords.fr || [])];
       const unique = [...new Set(all)];
-      return `- ${c.slug} (${c.name.en} / ${c.name.ht} / ${c.name.fr}): ${unique.join(', ')}`;
+      return `- ${c.slug} (${c.name.en} / ${c.name.ht || ''} / ${c.name.fr || ''}): ${unique.join(', ')}`;
     })
     .join('\n');
 
