@@ -1,3 +1,6 @@
+'use strict';
+
+const twilio              = require('twilio');
 const { processMessage }  = require('./router');
 const { isDuplicate }     = require('./db');
 const { transcribeAudio } = require('./utils/whisper');
@@ -14,10 +17,40 @@ const { transcribeAudio } = require('./utils/whisper');
 // - No GET verification endpoint needed
 // ============================================================
 
+// ── SIGNATURE VALIDATION ──────────────────────────────────────
+// Rejects any request not signed by Twilio — prevents spoofed webhooks.
+// Requires TWILIO_AUTH_TOKEN and WEBHOOK_URL in environment variables.
+// WEBHOOK_URL must be the exact public URL Twilio posts to, e.g.:
+//   https://your-app.railway.app/webhook
+function validateTwilioSignature(req, res, next) {
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const url   = process.env.WEBHOOK_URL;
+
+  if (!token || !url) {
+    console.warn('[webhook] TWILIO_AUTH_TOKEN or WEBHOOK_URL not set — skipping signature validation');
+    return next();
+  }
+
+  const valid = twilio.validateRequest(
+    token,
+    req.headers['x-twilio-signature'] || '',
+    url,
+    req.body
+  );
+
+  if (!valid) {
+    console.warn('[webhook] Invalid Twilio signature — rejected');
+    return res.sendStatus(403);
+  }
+
+  next();
+}
+
+// ── WEBHOOK HANDLER ───────────────────────────────────────────
+
 async function handleWebhook(req, res) {
   // Twilio expects 200 immediately
   res.sendStatus(200);
-
   try {
     const body = req.body;
 
@@ -50,7 +83,6 @@ async function handleWebhook(req, res) {
         // Images, docs, etc. not supported yet
         return;
       }
-
     } else {
       content = (body.Body || '').trim();
     }
@@ -58,10 +90,9 @@ async function handleWebhook(req, res) {
     if (!content) return;
 
     await processMessage({ waId, displayName, messageId, messageType, content });
-
   } catch (err) {
     console.error('Webhook error:', err);
   }
 }
 
-module.exports = { handleWebhook };
+module.exports = { handleWebhook, validateTwilioSignature };
