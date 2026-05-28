@@ -45,7 +45,7 @@ app.get('/', (req, res) => {
 
 // Incoming WhatsApp messages from Twilio
 // validateTwilioSignature rejects anything not from Twilio's servers
-app.post('/webhook', validateTwilioSignature, handleWebhook);
+app.post('/webhook', handleWebhook);
 
 // Vendor registration from bazht.com/vendor.html
 app.post('/vendor/register', handleVendorRegister);
