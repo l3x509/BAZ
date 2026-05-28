@@ -1,5 +1,6 @@
 const Anthropic = require('@anthropic-ai/sdk');
-const { buildKeywordPrompt, slugs } = require('./config/categories');
+//const { buildKeywordPrompt, slugs } = require('./config/categories');
+const { buildKeywordPrompt, slugs, active } = require('./config/categories');
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
