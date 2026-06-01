@@ -130,7 +130,7 @@ Category:
   try {
     const res = await client.messages.create({
       model:       'claude-sonnet-4-5',
-      max_tokens:  120,
+      max_tokens:  300,
       temperature: 0,
       system:      systemPrompt,
       messages,
