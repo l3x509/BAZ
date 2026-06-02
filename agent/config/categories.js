@@ -46,7 +46,7 @@ const categories = [
     },
     keywords: {
       en: ['plumber', 'plumbing', 'pipe', 'leak', 'drain', 'water repair'],
-      ht: ['plonbye', 'tuyò', 'dlo', 'fuites', 'plombri'],
+      ht: ['plonbye', 'tuyò', 'dlo koule', 'plombri'],
       fr: ['plombier', 'plomberie', 'tuyau', 'fuite', 'canalisation'],
     },
   },
@@ -61,8 +61,8 @@ const categories = [
       fr: 'Électriciens et réparations électriques',
     },
     keywords: {
-      en: ['electrician', 'electrical', 'electric', 'wiring', 'power', 'outlet'],
-      ht: ['elektrisyen', 'elektrik', 'kouran', 'fil', 'lumyè'],
+      en: ['electrician', 'electrical', 'wiring', 'power outlet', 'circuit'],
+      ht: ['elektrisyen', 'elektrik', 'kouran', 'fil elektrik', 'lumyè'],
       fr: ['électricien', 'électrique', 'électricité', 'câblage', 'courant'],
     },
   },
@@ -77,8 +77,8 @@ const categories = [
       fr: 'Chauffeurs, services de voiture et transport',
     },
     keywords: {
-      en: ['driver', 'car service', 'taxi', 'transport', 'ride', 'chauffeur', 'airport'],
-      ht: ['chofè', 'transpò', 'vwati', 'taksi', 'lestasyon'],
+      en: ['driver', 'car service', 'taxi', 'ride', 'chauffeur', 'airport ride'],
+      ht: ['chofè', 'transpò', 'vwati', 'taksi', 'machin'],
       fr: ['chauffeur', 'transport', 'voiture', 'taxi', 'aéroport'],
     },
   },
@@ -93,9 +93,9 @@ const categories = [
       fr: 'Tuteurs, enseignants et services éducatifs',
     },
     keywords: {
-      en: ['tutor', 'teacher', 'education', 'school', 'lesson', 'learning', 'homework', 'class'],
-      ht: ['pwofesè', 'lekòl', 'kou', 'edikasyon', 'devwa', 'aprann'],
-      fr: ['tuteur', 'professeur', 'école', 'cours', 'éducation', 'leçon'],
+      en: ['tutor', 'teacher', 'lesson', 'homework help', 'after school', 'learning'],
+      ht: ['pwofesè', 'lekòl', 'kou', 'devwa', 'aprann'],
+      fr: ['tuteur', 'professeur', 'cours', 'éducation', 'leçon'],
     },
   },
 
@@ -109,7 +109,7 @@ const categories = [
       fr: 'Entrepreneurs généraux et services de construction',
     },
     keywords: {
-      en: ['contractor', 'construction', 'builder', 'renovation', 'remodel', 'repair home', 'handyman'],
+      en: ['contractor', 'construction', 'builder', 'renovation', 'remodel', 'handyman'],
       ht: ['kontraktè', 'konstriksyon', 'reparasyon kay', 'renovasyon', 'maçon'],
       fr: ['entrepreneur', 'construction', 'rénovation', 'maçon', 'bâtisseur'],
     },
@@ -125,9 +125,11 @@ const categories = [
       fr: 'Cuisiniers privés, chefs et services traiteur',
     },
     keywords: {
-      en: ['cook', 'catering', 'chef', 'private chef', 'event food', 'food service'],
-      ht: ['kizinyè', 'trètè', 'chèf', 'manje pou evènman'],
-      fr: ['cuisinier', 'traiteur', 'chef', 'cuisine privée'],
+      // FIX: removed 'food service' — too close to restaurant keywords.
+      // cook/catering is about hiring a person, not eating at a place.
+      en: ['catering', 'private chef', 'event catering', 'personal cook', 'cook for party'],
+      ht: ['kizinyè prive', 'trètè', 'chèf', 'manje pou evènman', 'fè manje'],
+      fr: ['cuisinier privé', 'traiteur', 'chef', 'cuisine privée', 'repas événement'],
     },
   },
 
@@ -141,8 +143,8 @@ const categories = [
       fr: 'Nettoyage de maison et services de conciergerie',
     },
     keywords: {
-      en: ['cleaning', 'cleaner', 'housekeeping', 'maid', 'janitorial', 'sweep', 'mop'],
-      ht: ['netwayaj', 'fè kay pwòp', 'bale', 'mòp'],
+      en: ['cleaning', 'house cleaning', 'housekeeping', 'maid', 'janitorial'],
+      ht: ['netwayaj', 'fè kay pwòp', 'bale kay'],
       fr: ['nettoyage', 'ménage', 'femme de ménage', 'conciergerie'],
     },
   },
@@ -157,8 +159,8 @@ const categories = [
       fr: 'Mécaniciens automobiles et réparation de véhicules',
     },
     keywords: {
-      en: ['mechanic', 'auto repair', 'car repair', 'garage', 'oil change', 'brake', 'tire'],
-      ht: ['mekanisyen', 'reparasyon machin', 'garaj', 'lwil'],
+      en: ['mechanic', 'auto repair', 'car repair', 'oil change', 'brake', 'tire'],
+      ht: ['mekanisyen', 'reparasyon machin', 'garaj', 'lwil machin'],
       fr: ['mécanicien', 'réparation auto', 'garage', 'vidange'],
     },
   },
@@ -192,7 +194,7 @@ const categories = [
     },
     keywords: {
       en: ['restaurant', 'food', 'eat', 'dining', 'meal', 'lunch', 'dinner', 'breakfast', 'takeout', 'cuisine', 'haitian food'],
-      ht: ['restoran', 'manje', 'bwè', 'kafe', 'kizin', 'griyo', 'diri', 'poul'],
+      ht: ['restoran', 'manje', 'bwè', 'kafe', 'kizin', 'griyo', 'diri', 'poul', 'lalo', 'soup joumou'],
       fr: ['restaurant', 'manger', 'repas', 'cuisine', 'nourriture', 'déjeuner', 'dîner'],
     },
   },
@@ -208,7 +210,7 @@ const categories = [
     },
     keywords: {
       en: ['grocery', 'supermarket', 'market', 'provisions', 'haitian market', 'food store'],
-      ht: ['komisyon', 'mache', 'magazen', 'pwovizyon', 'manje an gwo'],
+      ht: ['komisyon', 'mache', 'magazen manje', 'pwovizyon'],
       fr: ['épicerie', 'supermarché', 'marché', 'provisions'],
     },
   },
@@ -224,7 +226,7 @@ const categories = [
     },
     keywords: {
       en: ['hair', 'beauty', 'salon', 'barber', 'nails', 'braids', 'locs', 'wig', 'extensions', 'stylist'],
-      ht: ['cheve', 'bote', 'salon', 'kwafiè', 'zong', 'tres', 'pèwik'],
+      ht: ['cheve', 'bote', 'salon', 'kwafiè', 'zong', 'tres', 'pèwik', 'trese cheve'],
       fr: ['cheveux', 'beauté', 'salon', 'coiffure', 'ongles', 'tresses', 'perruque'],
     },
   },
@@ -259,8 +261,8 @@ const categories = [
       fr: 'Sauces, épices et produits alimentaires haïtiens',
     },
     keywords: {
-      en: ['food products', 'haitian sauce', 'epis', 'seasoning', 'spice', 'kondiman', 'haitian spices', 'pikliz'],
-      ht: ['pwodui manje', 'sòs', 'epis', 'kondiman', 'piman', 'pikliz'],
+      en: ['food products', 'haitian sauce', 'epis', 'seasoning', 'haitian spices', 'pikliz', 'kondiman'],
+      ht: ['pwodui manje', 'sòs ayisyen', 'epis', 'kondiman', 'piman', 'pikliz'],
       fr: ['produits alimentaires', 'sauce haïtienne', 'épices', 'condiment'],
     },
   },
@@ -275,9 +277,9 @@ const categories = [
       fr: 'Artisanat haïtien et produits faits main',
     },
     keywords: {
-      en: ['crafts', 'handmade', 'artisan', 'basket', 'haitian art', 'woven'],
-      ht: ['atizana', 'fèt alamen', 'panye', 'atizay'],
-      fr: ['artisanat', 'fait main', 'panier', 'artisan'],
+      en: ['crafts', 'handmade', 'artisan', 'haitian basket', 'haitian crafts', 'woven'],
+      ht: ['atizana', 'fèt alamen', 'panye', 'atizay ayisyen'],
+      fr: ['artisanat', 'fait main', 'panier', 'artisan haïtien'],
     },
   },
 
@@ -291,9 +293,9 @@ const categories = [
       fr: 'Peintures, sculptures et œuvres d\'art haïtiennes',
     },
     keywords: {
-      en: ['art', 'painting', 'artwork', 'haitian art', 'sculpture', 'canvas', 'artist'],
-      ht: ['penti', 'atizay', 'eskilti', 'atisan', 'tablo'],
-      fr: ['art', 'peinture', 'sculpture', 'tableau', 'artiste'],
+      en: ['haitian art', 'haitian painting', 'artwork', 'sculpture', 'canvas', 'haitian artist'],
+      ht: ['penti', 'atizay', 'eskilti', 'tablo ayisyen'],
+      fr: ['art haïtien', 'peinture haïtienne', 'sculpture', 'tableau'],
     },
   },
 
@@ -307,7 +309,7 @@ const categories = [
       fr: 'Bijoux haïtiens, accessoires et perles',
     },
     keywords: {
-      en: ['jewelry', 'jewellery', 'necklace', 'bracelet', 'earring', 'ring', 'beads', 'accessory'],
+      en: ['jewelry', 'necklace', 'bracelet', 'earring', 'ring', 'beads', 'haitian jewelry'],
       ht: ['bijou', 'kolye', 'braslè', 'zanno', 'bag', 'grenn'],
       fr: ['bijoux', 'collier', 'bracelet', 'boucles', 'bague', 'perles'],
     },
@@ -323,13 +325,18 @@ const categories = [
       fr: 'Décoration intérieure, meubles et articles ménagers',
     },
     keywords: {
-      en: ['home decor', 'furniture', 'decoration', 'interior', 'household', 'haitian decor'],
-      ht: ['dekorasyon', 'mèb', 'atik kay', 'orneman'],
-      fr: ['décoration', 'mobilier', 'meuble', 'intérieur', 'maison'],
+      en: ['home decor', 'furniture', 'haitian decor', 'interior decoration', 'household items'],
+      ht: ['dekorasyon kay', 'mèb', 'atik kay', 'orneman'],
+      fr: ['décoration intérieure', 'mobilier', 'meuble', 'décoration haïtienne'],
     },
   },
 
   {
+    // FIX: removed 'service', 'business', 'help', 'find' from all languages.
+    // Those are too generic — they caused Claude to route legitimate searches
+    // (e.g. "I need a service") to 'other' instead of the correct category.
+    // 'other' should only trigger when the user explicitly says they want
+    // something not listed, not as a catch-all for any vague request.
     slug: 'other', type: 'service', modes: ['find'],
     icon: '📋', sort_order: 99, is_active: true,
     name: { en: 'Other', ht: 'Lòt', fr: 'Autre' },
@@ -339,20 +346,20 @@ const categories = [
       fr: 'Autres services et entreprises',
     },
     keywords: {
-      en: ['other', 'service', 'business', 'help', 'find'],
-      ht: ['lòt', 'sèvis', 'biznis', 'ede'],
-      fr: ['autre', 'service', 'entreprise', 'aide'],
+      en: ['other', 'something else', 'not listed', 'different service'],
+      ht: ['lòt', 'lòt bagay', 'pa nan lis'],
+      fr: ['autre', 'autre chose', 'pas dans la liste'],
     },
   },
 
 ];
 
 // ── HELPERS ───────────────────────────────────────────────────
-const active           = () => categories.filter(c => c.is_active);
+const active            = () => categories.filter(c => c.is_active);
 const serviceCategories = () => categories.filter(c => c.is_active && c.type !== 'product');
 const productCategories = () => categories.filter(c => c.is_active && c.type !== 'service');
-const slugs            = () => active().map(c => c.slug);
-const bySlug           = slug => categories.find(c => c.slug === slug) || null;
+const slugs             = () => active().map(c => c.slug);
+const bySlug            = slug => categories.find(c => c.slug === slug) || null;
 
 // ── MODE OPTIONS ──────────────────────────────────────────────
 // Returns array of { num, mode, label, handler } for a category.
