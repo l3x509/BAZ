@@ -34,9 +34,9 @@ const COPY = {
     fr: `Bonjour! 👋 Je suis *Baz* — votre assistant haïtien sur WhatsApp.\n\nDites-moi ce dont vous avez besoin:\n\n💇 *cheveux* — trouver un salon, acheter ou vendre\n🍽️ *restaurant* — trouver un restaurant\n🔧 *plombier* — trouver un plombier\n💸 *envoyer argent* — envoyer de l'argent en Haïti\n\nOu écrivez simplement ce dont vous avez besoin!`,
   },
   unknown: {
-    ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, plonbye, cheve...)\n• *voye lajan* — pou voye lajan ann Ayiti\n• *0* — pou retounen nan meni`,
-    en: `I didn't catch that. Try:\n• What you're *looking for* (restaurant, plumber, hair...)\n• *send money* — to send money to Haiti\n• *0* — to go back to the menu`,
-    fr: `Je n'ai pas compris. Essayez:\n• Ce que vous *cherchez* (restaurant, plombier...)\n• *envoyer argent* — pour envoyer de l'argent en Haïti\n• *0* — pour revenir au menu`,
+    ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, plonbye, cheve...)\n• *voye lajan* — pou voye lajan ann Ayiti\n• *menu* — pou retounen nan meni prensipal`,
+    en: `I didn't catch that. Try:\n• What you're *looking for* (restaurant, plumber, hair...)\n• *send money* — to send money to Haiti\n• *menu* — to go back to the main menu`,
+    fr: `Je n'ai pas compris. Essayez:\n• Ce que vous *cherchez* (restaurant, plombier...)\n• *envoyer argent* — pour envoyer de l'argent en Haïti\n• *menu* — pour revenir au menu principal`,
   },
   comingSoon: {
     ht: `⏳ Fonksyon sa a ap vini byento!`,
@@ -105,24 +105,31 @@ async function route({ user, message, lang, conversationHistory }) {
     const sessionState = user.session_state || {};
     const text         = message.trim().toLowerCase();
 
-    // ── BACK / 0 ─────────────────────────────────────────────
+    // ── BACK / 0 / MENU — always returns to main greeting ────
+    // FIX: removed last_category branch — calling handleCategory with a single-mode
+    // category (e.g. hair_beauty) dispatched find with message="0", returning junk results.
+    // "0" and "menu" both mean "take me home."
     const backWords = ['0', 'back', 'retounen', 'retour', 'menu'];
     if (backWords.includes(text)) {
       await clearPendingMode(user);
-      // If they have a last category, re-show that menu; else show greeting
-      if (sessionState.last_category) {
-        return await handleCategory({
-          topic: {
-            type: 'category',
-            category_slug: sessionState.last_category,
-            city: null, country: null,
-          },
-          user, message, lang, conversationHistory,
-          forceMenu: false,       // still filter stubs on back
-          ignorePreference: true, // but always show menu (ignore saved mode preference)
-        });
-      }
       return sendText(user.whatsapp_id, COPY.greeting[lang] || COPY.greeting.en);
+    }
+
+    // ── OPTIONS — force category menu re-show ─────────────────
+    // FIX: moved outside resolvePendingMode so it works even without pending state.
+    // Previously fell through to detectTopic silently when no pending_mode existed.
+    if (text === 'options' && sessionState.last_category) {
+      await clearPendingMode(user);
+      return await handleCategory({
+        topic: {
+          type: 'category',
+          category_slug: sessionState.last_category,
+          city: null,
+          country: null,
+        },
+        user, message, lang, conversationHistory,
+        forceMenu: true,
+      });
     }
 
     // ── MORE results ──────────────────────────────────────────
@@ -192,9 +199,9 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
   // ALL modes are stubs → single coming-soon message, no menu
   if (!options.length) {
     const msg = {
-      ht: `🛍️ *${cat.name.ht}* ap vini sou Vitrin byento!\n\nVandè ayisyen yo pral ka vann dirèkteman sou WhatsApp. Rete tann!\n\n_Ekri *0* pou retounen_`,
-      en: `🛍️ *${cat.name.en}* is coming soon on Vitrin!\n\nHaitian vendors will sell directly through WhatsApp. Stay tuned!\n\n_Type *0* to go back_`,
-      fr: `🛍️ *${cat.name.fr}* arrive bientôt sur Vitrin!\n\nLes vendeurs haïtiens vendront directement sur WhatsApp.\n\n_Tapez *0* pour revenir_`,
+      ht: `🛍️ *${cat.name.ht}* ap vini sou Vitrin byento!\n\nVandè ayisyen yo pral ka vann dirèkteman sou WhatsApp. Rete tann!\n\n_Ekri *menu* pou retounen_`,
+      en: `🛍️ *${cat.name.en}* is coming soon on Vitrin!\n\nHaitian vendors will sell directly through WhatsApp. Stay tuned!\n\n_Type *menu* to go back_`,
+      fr: `🛍️ *${cat.name.fr}* arrive bientôt sur Vitrin!\n\nLes vendeurs haïtiens vendront directement sur WhatsApp.\n\n_Tapez *menu* pour revenir_`,
     };
     return sendText(user.whatsapp_id, msg[lang] || msg.en);
   }
@@ -257,7 +264,7 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
 async function resolvePendingMode({ pending, message, user, lang, conversationHistory }) {
   if (Date.now() > pending.expires_at) return false;
 
-  // "options" overrides preference and forces menu re-show
+  // "options" inside pending flow also handled here as fallback
   if (message.trim().toLowerCase() === 'options') {
     await clearPendingMode(user);
     return await handleCategory({
@@ -329,9 +336,9 @@ function buildModeMenu(cat, options, lang) {
     fr: `Qu'avez-vous besoin pour *${cat.name.fr}*? ${cat.icon}`,
   };
   const back = {
-    ht: `0. 🔙 Retounen`,
-    en: `0. 🔙 Back`,
-    fr: `0. 🔙 Retour`,
+    ht: `0. 🏠 Meni prensipal`,
+    en: `0. 🏠 Main menu`,
+    fr: `0. 🏠 Menu principal`,
   };
   const list = options.map(o => `${o.num}. ${o.label}`).join('\n');
   return `${header[lang] || header.en}\n\n${list}\n${back[lang] || back.en}`;
@@ -354,9 +361,9 @@ async function showMoreResults(user, lang) {
 
   if (!businesses.length) {
     const noMore = {
-      ht: `📋 Pa gen plis rezilta.\n\n_Ekri *0* pou retounen_`,
-      en: `📋 No more results.\n\n_Type *0* to go back_`,
-      fr: `📋 Plus de résultats.\n\n_Tapez *0* pour revenir_`,
+      ht: `📋 Pa gen plis rezilta.\n\n_Ekri *menu* pou retounen_`,
+      en: `📋 No more results.\n\n_Type *menu* to go back_`,
+      fr: `📋 Plus de résultats.\n\n_Tapez *menu* pour revenir_`,
     };
     return sendText(user.whatsapp_id, noMore[lang] || noMore.en);
   }
