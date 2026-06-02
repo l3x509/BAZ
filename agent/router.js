@@ -137,6 +137,30 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
 async function route({ user, message, lang, conversationHistory }) {
   try {
     const sessionState = user.session_state || {};
+    const text = message.trim().toLowerCase();
+
+    // ── BACK navigation ───────────────────────────────────────
+    // "0", "back", "retounen" re-shows the last category menu
+    const backWords = ['0', 'back', 'retounen', 'retour'];
+    if (backWords.includes(text) && sessionState.last_category) {
+      await clearPendingMode(user);
+      return await handleCategory({
+        topic: {
+          type:          'category',
+          category_slug: sessionState.last_category,
+          city:          sessionState.last_search?.city    || null,
+          country:       sessionState.last_search?.country || null,
+        },
+        user, message, lang, conversationHistory,
+      });
+    }
+
+    // ── MORE results ──────────────────────────────────────────
+    // "more", "plis", "plus" loads the next page of search results
+    const moreWords = ['more', 'plis', 'plus', 'next', 'more results'];
+    if (moreWords.some(k => text === k || text.startsWith(k + ' ')) && sessionState.last_search) {
+      return await showMoreResults(user, lang);
+    }
 
     // STEP 1 — Resolve pending mode selection
     if (sessionState.pending_mode) {
@@ -202,6 +226,13 @@ async function handleCategory({ topic, user, message, lang, conversationHistory 
   const cat      = bySlug(category_slug);
   const menuText = buildModeMenu(cat, options, lang);
 
+  // Save last_category so "back" knows where to return
+  try {
+    await db.updateSessionState(user.id, {
+      ...user.session_state,
+      last_category: category_slug,
+    });
+  } catch {}
   await savePendingMode(user, { category_slug, city, country, options });
   return sendText(user.whatsapp_id, menuText);
 }
@@ -276,8 +307,13 @@ function buildModeMenu(cat, options, lang) {
     en: `What do you need for *${cat.name.en}*? ${cat.icon}`,
     fr: `Qu'avez-vous besoin pour *${cat.name.fr}*? ${cat.icon}`,
   };
+  const back = {
+    ht: '0. 🔙 Retounen nan meni',
+    en: '0. 🔙 Back to menu',
+    fr: '0. 🔙 Retour au menu',
+  };
   const list = options.map(o => `${o.num}. ${o.label}`).join('\n');
-  return `${header[lang] || header.en}\n\n${list}`;
+  return `${header[lang] || header.en}\n\n${list}\n${back[lang] || back.en}`;
 }
 
 // ── SESSION HELPERS ───────────────────────────────────────────
@@ -306,6 +342,50 @@ async function clearPendingMode(user) {
   } catch (err) {
     console.warn('[router] clearPendingMode failed (non-fatal):', err.message);
   }
+}
+
+// ── SHOW MORE RESULTS ────────────────────────────────────────
+async function showMoreResults(user, lang) {
+  const sessionState = user.session_state || {};
+  const lastSearch   = sessionState.last_search;
+  if (!lastSearch) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
+
+  const newOffset = (lastSearch.offset || 0) + 5;
+  const businesses = await db.searchBusinesses({
+    query:        lastSearch.query,
+    categorySlug: lastSearch.categorySlug,
+    city:         lastSearch.city    || null,
+    country:      lastSearch.country || null,
+    limit:        5,
+    offset:       newOffset,
+  });
+
+  if (!businesses.length) {
+    const noMore = {
+      ht: '📋 Pa gen plis rezilta.
+
+_*0* pou retounen_',
+      en: '📋 No more results.
+
+_*0* to go back_',
+      fr: '📋 Plus de résultats.
+
+_*0* pour revenir_',
+    };
+    return sendText(user.whatsapp_id, noMore[lang] || noMore.en);
+  }
+
+  // Update offset in session state
+  try {
+    await db.updateSessionState(user.id, {
+      ...sessionState,
+      last_search: { ...lastSearch, offset: newOffset },
+    });
+  } catch {}
+
+  const wa = require('./whatsapp');
+  const hasMore = businesses.length === 5;
+  return wa.sendBusinessResults(user.whatsapp_id, businesses, lang, hasMore);
 }
 
 module.exports = { route, processMessage };
