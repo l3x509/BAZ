@@ -149,7 +149,7 @@ async function route({ user, message, lang, conversationHistory }) {
     }
 
     // STEP 2 — Detect topic
-    const topic = await detectTopic(message, lang, conversationHistory);
+    const topic = await detectTopic(message, lang);
     console.log(`[router] topic=${JSON.stringify(topic)} lang=${lang} user=${user.whatsapp_id}`);
 
     // STEP 3 — Route
