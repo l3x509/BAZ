@@ -165,7 +165,6 @@ async function getConversationHistory(conversationId, limit = 10) {
 // BUSINESSES (BAZ DIRECTORY)
 // ============================================================
 
-// Keywords used as fallback when category_id lookup returns nothing
 // ── CITY ALIASES ─────────────────────────────────────────────
 // Maps common user inputs to searchable city names
 const CITY_ALIASES = {
@@ -175,21 +174,29 @@ const CITY_ALIASES = {
   'petit goave': 'Petit-Goâve', 'gonaives': 'Gonaïves',
 };
 
+// ── CATEGORY KEYWORDS ────────────────────────────────────────
+// Strategy 3 fallback: catches businesses with NULL category_id.
+// FIX: replaced single generic words ('hair', 'beauty', 'food') with
+// compound/specific terms so community orgs and churches don't bleed
+// into unrelated searches. Each keyword must be specific enough that
+// only businesses in that category would have it in their name/description.
 const CATEGORY_KEYWORDS = {
-  restaurant:    ['restaurant', 'cuisine', 'grill', 'kitchen', 'food', 'bistro', 'lounge'],
-  hair_beauty:   ['hair', 'salon', 'beauty', 'barber', 'nails', 'braids', 'coiffure'],
-  grocery:       ['grocery', 'supermarket', 'market', 'provisions'],
-  medical:       ['medical', 'health', 'clinic', 'doctor', 'pharmacy', 'care'],
-  contractor:    ['construction', 'contractor', 'renovation', 'builder'],
-  driver:        ['transport', 'driver', 'taxi', 'car service', 'school bus'],
-  cook:          ['catering', 'chef', 'cook', 'bakery', 'pastry'],
-  tutor:         ['education', 'tutor', 'school', 'learning', 'training'],
-  mechanic:      ['mechanic', 'auto', 'repair', 'garage'],
-  cleaner:       ['cleaning', 'maid', 'janitorial', 'housekeeping'],
-  fashion:       ['fashion', 'clothing', 'boutique', 'apparel'],
-  food_products: ['bakery', 'pastry', 'sauce', 'spice', 'food product'],
-  jewelry:       ['jewelry', 'jewellery', 'accessory', 'gems'],
-  crafts:        ['crafts', 'handmade', 'artisan', 'basket'],
+  restaurant:    ['restaurant', 'cuisine haïtienne', 'grill', 'bistro', 'lounge', 'traiteur', 'food court'],
+  hair_beauty:   ['hair salon', 'nail salon', 'beauty salon', 'braiding salon', 'barbershop', 'coiffure', 'trese cheve', 'natural hair', 'locs', 'weave'],
+  grocery:       ['grocery store', 'supermarket', 'provisions', 'épicerie', 'komisyon'],
+  medical:       ['medical center', 'health clinic', 'pharmacy', 'doktè', 'sante'],
+  contractor:    ['construction', 'contractor', 'renovation', 'builder', 'remodeling'],
+  driver:        ['car service', 'taxi service', 'school bus', 'chauffeur', 'transpò'],
+  cook:          ['catering', 'private chef', 'bakery', 'pastry shop', 'traiteur'],
+  tutor:         ['tutoring', 'learning center', 'after school', 'training center', 'lekòl'],
+  mechanic:      ['auto repair', 'auto mechanic', 'car repair', 'garage'],
+  cleaner:       ['cleaning service', 'maid service', 'janitorial', 'housekeeping', 'nettoyage'],
+  fashion:       ['fashion boutique', 'clothing store', 'boutique', 'apparel'],
+  food_products: ['food product', 'sauce ayisyen', 'epis', 'pwodui manje', 'haitian spice'],
+  jewelry:       ['jewelry', 'bijou', 'jewellery', 'accessories store'],
+  crafts:        ['handmade crafts', 'artisan', 'haitian art', 'craft store'],
+  plumber:       ['plumbing', 'plombier', 'pipe repair'],
+  electrician:   ['electrician', 'electrical contractor', 'elektrisyen'],
 };
 
 function buildBase() {
@@ -209,62 +216,79 @@ function applyLocation(q, { city, country }) {
 
 async function searchBusinesses({ query, categorySlug, city, country, limit = 5, offset = 0, userCity = null, userCountry = null }) {
   // Normalise city aliases
-  if (city) city = CITY_ALIASES[city.toLowerCase()] || city;
+  if (city)     city     = CITY_ALIASES[city.toLowerCase()]     || city;
   if (userCity) userCity = CITY_ALIASES[userCity.toLowerCase()] || userCity;
-  // ── Strategy 1: category_id exact match ──────────────────
+
+  // ── Resolve category_id once — reused across all strategies ──
+  // FIX: was resolved only in strategy 1 and lost afterward.
+  // Now resolved upfront so strategy 2 can scope to it as well.
+  let categoryId = null;
   if (categorySlug) {
     const { data: cat } = await supabase
       .from('service_categories')
       .select('id, name_en')
       .eq('slug', categorySlug)
       .single();
+    if (cat) categoryId = cat.id;
+  }
 
-    if (cat) {
-      // Try with user-specified city first
-      let q = applyLocation(buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1), { city, country });
-      const { data } = await q;
-      if (data?.length) return data;
+  // ── Strategy 1: category_id exact match ──────────────────
+  if (categoryId) {
+    // Try with user-specified city first
+    const { data } = await applyLocation(
+      buildBase().eq('category_id', categoryId).range(offset, offset + limit - 1),
+      { city, country }
+    );
+    if (data?.length) return data;
 
-      // Fall back to user's saved location city
-      if (!city && userCity) {
-        let q2 = applyLocation(buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1), { city: userCity, country: userCountry });
-        const { data: data2 } = await q2;
-        if (data2?.length) return data2;
-      }
+    // Fall back to user's saved location city
+    if (!city && userCity) {
+      const { data: data2 } = await applyLocation(
+        buildBase().eq('category_id', categoryId).range(offset, offset + limit - 1),
+        { city: userCity, country: userCountry }
+      );
+      if (data2?.length) return data2;
+    }
 
-      // Broaden — no city filter (show all matching category)
-      if (city || userCity) {
-        let q3 = buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1);
-        const { data: data3 } = await q3;
-        if (data3?.length) return data3;
-      }
+    // Broaden — no city filter at all
+    if (city || userCity) {
+      const { data: data3 } = await buildBase()
+        .eq('category_id', categoryId)
+        .range(offset, offset + limit - 1);
+      if (data3?.length) return data3;
     }
   }
 
-  // ── Strategy 2: text search on query or message ───────────
+  // ── Strategy 2: text search — SCOPED to category when known ──
+  // FIX: was a global unscoped search. When categoryId is known, filter
+  // to that category first — prevents "manje" / "cheve" matching community
+  // orgs, churches, or radio stations across the whole businesses table.
+  // Only drops the category scope if no categoryId was resolved (e.g. query
+  // came in without a slug, which should be rare).
   if (query) {
-    let q = applyLocation(
-      buildBase()
-        .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
-        .range(offset, offset + limit - 1),
+    let base = buildBase().or(`name.ilike.%${query}%,description.ilike.%${query}%`);
+    if (categoryId) base = base.eq('category_id', categoryId);
+    const { data } = await applyLocation(
+      base.range(offset, offset + limit - 1),
       { city, country }
     );
-    const { data } = await q;
     if (data?.length) return data;
   }
 
   // ── Strategy 3: keyword fallback for known categories ─────
-  // Catches businesses with NULL category_id by searching descriptions
+  // Catches businesses with NULL category_id by matching on name/description.
+  // Uses compound/specific keywords (see CATEGORY_KEYWORDS above) to avoid
+  // false positives. Also FIX: was using .limit(limit) with no offset support,
+  // which broke pagination on fallback results — now uses .range().
   if (categorySlug) {
     const keywords = CATEGORY_KEYWORDS[categorySlug] || [categorySlug];
     for (const kw of keywords) {
-      let q = applyLocation(
+      const { data } = await applyLocation(
         buildBase()
           .or(`name.ilike.%${kw}%,description.ilike.%${kw}%`)
-          .limit(limit),
+          .range(offset, offset + limit - 1),
         { city, country }
       );
-      const { data } = await q;
       if (data?.length) return data;
     }
   }
@@ -360,13 +384,13 @@ module.exports = {
   updateUser,
   setUserLanguage,
   setUserSessionState,
-  updateSessionState,       // alias used by router.js
+  updateSessionState,
   // Conversations
   getActiveConversation,
   createConversation,
   updateConversation,
   closeConversation,
-  getConversationHistory,   // used by router.js for Claude context
+  getConversationHistory,
   // Messages
   logMessage,
   isDuplicate,
