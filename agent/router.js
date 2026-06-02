@@ -44,9 +44,9 @@ const ALL_CATEGORIES_TEXT = {
 
 const COPY = {
   greeting: {
-    ht: `Bonjou! 👋 Mwen se *Baz* — asistan ayisyen ou sou WhatsApp.\n\nEkri sa w bezwen:\n\n💇 *cheve* — hair & beauty\n🍽️ *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n👶 *gadri* — childcare\n📦 *kago* — shipping to Haiti\n🧾 *taks* — tax & notary\n🔧 *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
-    en: `Hello! 👋 I'm *Baz* — your Haitian community assistant on WhatsApp.\n\nTell me what you need:\n\n💇 *hair* — hair & beauty\n🍽️ *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n👶 *childcare* — daycare & preschool\n📦 *shipping* — cargo to Haiti\n🧾 *tax* — tax & notary\n🔧 *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
-    fr: `Bonjour! 👋 Je suis *Baz* — votre assistant haïtien sur WhatsApp.\n\nDites-moi ce dont vous avez besoin:\n\n💇 *cheveux* — coiffure & beauté\n🍽️ *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n👶 *garderie* — garde d'enfants\n📦 *expédition* — colis vers Haïti\n🧾 *impôts* — impôts & notaire\n🔧 *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n💇 *cheve* — hair & beauty\n🍽️ *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n👶 *gadri* — childcare\n📦 *kago* — shipping to Haiti\n🧾 *taks* — tax & notary\n🔧 *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n💇 *hair* — hair & beauty\n🍽️ *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n👶 *childcare* — daycare & preschool\n📦 *shipping* — cargo to Haiti\n🧾 *tax* — tax & notary\n🔧 *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
+    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n💇 *cheveux* — coiffure & beauté\n🍽️ *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n👶 *garderie* — garde d'enfants\n📦 *expédition* — colis vers Haïti\n🧾 *impôts* — impôts & notaire\n🔧 *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
   },
   unknown: {
     ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, avoka, cheve...)\n• *menu* — pou retounen nan meni prensipal\n• *tout* — pou wè tout kategori yo\n\n_Konsèy: ajoute vil la — "cheve Boston" oswa "avoka Brockton"_`,
@@ -263,9 +263,9 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
 // ════════════════════════════════════════════════════════════
 async function handleServicesMenu(user, lang) {
   const header = {
-    ht: `🔧 *Ki sèvis w bezwen?*\n`,
-    en: `🔧 *What service do you need?*\n`,
-    fr: `🔧 *Quel service cherchez-vous?*\n`,
+    ht: `🔧 *Ki sèvis ou bezwen?*\n`,
+    en: `🔧 *How can I help you?*\n`,
+    fr: `🔧 *Comment puis je vous aider?*\n`,
   };
   const back = {
     ht: `0. 🏠 Meni prensipal`,
