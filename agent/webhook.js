@@ -50,7 +50,8 @@ function validateTwilioSignature(req, res, next) {
 
 async function handleWebhook(req, res) {
   // Twilio expects 200 immediately
-  res.sendStatus(200);
+  res.setHeader('Content-Type', 'text/xml');
+res.status(200).send('<Response></Response>');
   try {
     const body = req.body;
 
