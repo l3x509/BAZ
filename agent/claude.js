@@ -23,145 +23,133 @@ const categoryList = () => {
 };
 
 // ── SAFE JSON PARSER ──────────────────────────────────────────
-// Claude sometimes returns multiple JSON blocks when given conversation
-// history. We strip all fences, then try from the LAST valid JSON
-// object backwards — the last one is Claude's final answer.
 function safeParseJSON(text, fallback = {}) {
   if (!text) return fallback;
-
-  // Step 1: Remove ALL markdown fence markers globally
-  const cleaned = text
-    .replace(/```json/gi, '')
-    .replace(/```/g, '')
-    .trim();
-
-  // Step 2: Try parsing the full cleaned text directly
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
   try { return JSON.parse(cleaned); } catch {}
-
-  // Step 3: Find all complete {...} objects, try from LAST to FIRST
-  // Last match = Claude's most recent/correct answer
   const matches = [...cleaned.matchAll(/\{[^{}]*\}/g)];
   for (let i = matches.length - 1; i >= 0; i--) {
     try { return JSON.parse(matches[i][0]); } catch {}
   }
-
-  // Step 4: Try greedy match for nested objects
   try {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
   } catch {}
-
   console.error('[claude] JSON parse failed. Raw:', text?.slice(0, 200));
   return fallback;
 }
 
+// ── SIMPLE LANGUAGE DETECTOR ──────────────────────────────────
+// Fast heuristic — no API call needed.
+// Returns 'ht', 'fr', 'en', or null if uncertain.
+function detectLang(text) {
+  const t = text.toLowerCase();
+  const htWords = ['mwen', 'nou ', ' yo ', ' ak ', ' pa ', ' ki ', ' se ', ' pou ', 'bonjou', 'bonswa', 'mèsi', 'kijan', 'nenpòt', 'bezwen'];
+  const frWords = ['bonjour', 'bonsoir', 'merci', ' je ', ' tu ', ' vous ', ' nous ', "c'est", 'comment', 'pourquoi', "qu'est", 'aussi', 'trouver'];
+  const htScore = htWords.filter(w => t.includes(w)).length;
+  const frScore = frWords.filter(w => t.includes(w)).length;
+  if (htScore >= 2) return 'ht';
+  if (frScore >= 2) return 'fr';
+  if (htScore >= 1 && frScore === 0) return 'ht';
+  if (frScore >= 1 && htScore === 0) return 'fr';
+  return null;
+}
+
 // ── SYSTEM PROMPTS ────────────────────────────────────────────
 const SYSTEM_PROMPTS = {
-  ht: `Ou se Baz, yon asistan entelijan pou kominote ayisyen an.
-Ou pale Kreyòl ayisyen natirèlman ak respè.
-Ou ede moun jwenn biznis ak sèvis nan Ayiti ak nan dyaspora a (Miami, Boston, New York, Montreal).
-Ou ka ede yo voye lajan ak peye pou sèvis tou — ekolaj, kont elektrik, komisyon, kontraktè.
-Ou toujou reponn an Kreyòl, ak chalè ak klèman.
-Kenbe repons ou yo kout ak dirèk — moun ap li sou WhatsApp.`,
-
-  en: `You are Baz, an intelligent assistant for the Haitian community.
-You help people find businesses and services in Haiti and in diaspora cities (Miami, Boston, New York, Montreal).
-You also help them send money and pay for services — school fees, electricity, groceries, contractors.
-Speak naturally, warmly, and clearly.
-Keep responses concise — people are reading on WhatsApp.`,
-
-  fr: `Vous êtes Baz, un assistant intelligent pour la communauté haïtienne.
-Vous aidez les gens à trouver des entreprises et des services en Haïti et dans les villes de la diaspora.
-Vous pouvez aussi les aider à envoyer de l'argent et payer des services.
-Parlez naturellement, chaleureusement et clairement.
-Réponses courtes — les gens lisent sur WhatsApp.`,
+  ht: `Ou se Baz, yon asistan ayisyen sou WhatsApp.
+Ou pale Kreyòl natirèlman. Reponn kout — moun ap li sou telefòn.
+Ou ede moun jwenn biznis, voye lajan, ak achte/vann sou Vitrin.`,
+  en: `You are Baz, a Haitian community assistant on WhatsApp.
+Speak naturally and concisely — people read on their phones.
+Help users find businesses, send money, and buy/sell on Vitrin.`,
+  fr: `Vous êtes Baz, un assistant haïtien sur WhatsApp.
+Parlez naturellement et brièvement — les gens lisent sur téléphone.
+Aidez à trouver des entreprises, envoyer de l'argent et acheter/vendre sur Vitrin.`,
 };
 
 // ── DETECT TOPIC ──────────────────────────────────────────────
-// Single call: returns intent type + category + location.
-// NOTE: We intentionally do NOT pass conversationHistory here.
-// Passing history caused Claude to generate one JSON response per
-// history message, flooding output and cutting off the real answer.
-// Topic detection only needs the current message.
+// Returns intent + category + location + detected language.
+// Does NOT receive conversationHistory — avoids multi-block JSON output.
+async function detectTopic(message, currentLang) {
+  // Quick heuristic language detection first (no API call)
+  const detectedLang = detectLang(message);
 
-async function detectTopic(message, lang) {
   const systemPrompt = `You are a classifier for Baz, a Haitian WhatsApp assistant.
 
-Classify this single message. Respond with ONE JSON object only. No markdown. No code fences. No explanation.
+Classify this message. Return ONE JSON object only. No markdown. No explanation.
 
-STEP 1 — Check direct intents first:
-- pay: sending money, remittance, voye lajan, school fees, electricity bill
-- onboard: wants to list a business or sell ("mwen vle vann", "sell on baz", "vin vandè")
-- status: asking about an existing order, payment, or delivery
-- greeting: hello, hi, bonjou, bonswa, salut, alo — with NO other intent
+STEP 1 — Direct intents:
+- pay: voye lajan, send money, remittance, school fees, electricity
+- onboard: mwen vle vann, sell on baz, vin vandè, register business
+- status: order status, payment status, delivery update
+- greeting: hello/hi/bonjou/bonswa/salut/alo with NO other intent
 
-STEP 2 — If none match, identify category:
+STEP 2 — Category match using keywords:
 ${keywordPrompt()}
 
 Valid slugs: ${categoryList()}
 
-STEP 3 — Extract location if mentioned:
-- city in English, country as "HT"/"US"/"CA"/"FR", null if not mentioned
+STEP 3 — Extract if mentioned:
+- city: English name or null
+- country: "HT"/"US"/"CA"/"FR" or null
+- lang: detected language "ht"/"en"/"fr" (what language is the message written in?)
 
-Single word messages like "cheve", "manje", "rad", "hair", "food" are ALWAYS category matches.
+Single words like "cheve","manje","rad","hair","food","beauty" are ALWAYS category matches.
 
-Respond with exactly ONE of these — nothing else:
-{"type":"pay"}
-{"type":"onboard"}
-{"type":"status"}
-{"type":"greeting"}
-{"type":"unknown"}
-{"type":"category","category_slug":"hair_beauty","city":null,"country":null}`;
+Return exactly one of:
+{"type":"greeting","lang":"en"}
+{"type":"pay","lang":"ht"}
+{"type":"onboard","lang":"ht"}
+{"type":"status","lang":"en"}
+{"type":"unknown","lang":"en"}
+{"type":"category","category_slug":"hair_beauty","city":null,"country":null,"lang":"ht"}`;
 
   try {
     const res = await client.messages.create({
       model:       'claude-sonnet-4-5',
-      max_tokens:  150,
+      max_tokens:  120,
       temperature: 0,
       system:      systemPrompt,
       messages:    [{ role: 'user', content: message }],
     });
 
     const text   = res.content[0]?.text?.trim() || '{}';
-    const parsed = safeParseJSON(text, { type: 'unknown' });
+    const parsed = safeParseJSON(text, { type: 'unknown', lang: detectedLang || currentLang });
 
-    if (!parsed.type)                                         return { type: 'unknown' };
-    if (parsed.type === 'category' && !parsed.category_slug) return { type: 'unknown' };
+    if (!parsed.type) return { type: 'unknown', lang: currentLang };
+    if (parsed.type === 'category' && !parsed.category_slug) return { type: 'unknown', lang: currentLang };
 
+    // Merge heuristic detection with Claude's detection
+    parsed.lang = detectedLang || parsed.lang || currentLang;
     return parsed;
+
   } catch (err) {
     console.error('[claude] detectTopic failed:', err.message);
-    return { type: 'unknown' };
+    return { type: 'unknown', lang: currentLang };
   }
 }
 
 // ── CHAT ──────────────────────────────────────────────────────
 async function chat(userMessage, lang, conversationHistory = [], contextData = {}) {
   const systemBase = SYSTEM_PROMPTS[lang] || SYSTEM_PROMPTS.en;
-
   let systemSuffix = '';
   if (contextData.businesses?.length) {
     const summary = contextData.businesses.map(b => ({
-      id:       b.id,
-      name:     b.name,
+      id: b.id, name: b.name,
       category: b.service_categories?.name_en,
-      city:     b.city,
-      rating:   b.avg_rating,
+      city: b.city, rating: b.avg_rating,
     }));
     systemSuffix = `\n\nSearch results:\n${JSON.stringify(summary)}`;
   }
-
   const messages = [
     ...conversationHistory.slice(-10),
     { role: 'user', content: userMessage },
   ];
-
   try {
     const res = await client.messages.create({
-      model:      'claude-sonnet-4-5',
-      max_tokens: 400,
-      system:     systemBase + systemSuffix,
-      messages,
+      model: 'claude-sonnet-4-5', max_tokens: 400,
+      system: systemBase + systemSuffix, messages,
     });
     return res.content[0]?.text?.trim() || '';
   } catch (err) {
@@ -170,21 +158,16 @@ async function chat(userMessage, lang, conversationHistory = [], contextData = {
   }
 }
 
-// ── PARSE REMITTANCE REQUEST ──────────────────────────────────
+// ── PARSE REMITTANCE ──────────────────────────────────────────
 async function parseRemittanceRequest(message, lang) {
-  const prompt = `Parse this remittance request. Respond with ONE JSON object only. No markdown. No code fences.
+  const prompt = `Parse this remittance request. ONE JSON object only. No markdown.
 Message: "${message}"
-
-{"total":200,"recipient_name":"Marie Jean","splits":[{"type":"grocery","amount":80,"note":"Marché Salomon"},{"type":"school_fee","amount":120,"note":"École Nationale"}]}
-
+{"total":200,"recipient_name":"Marie Jean","splits":[{"type":"grocery","amount":80,"note":"Marché Salomon"}]}
 Split types: grocery, school_fee, contractor, electricity, medical, general`;
-
   try {
     const res = await client.messages.create({
-      model:       'claude-sonnet-4-5',
-      max_tokens:  300,
-      temperature: 0,
-      messages:    [{ role: 'user', content: prompt }],
+      model: 'claude-sonnet-4-5', max_tokens: 300, temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
     });
     const text = res.content[0]?.text?.trim() || '{}';
     return safeParseJSON(text, { splits: [{ type: 'general' }] });
