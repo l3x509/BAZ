@@ -1,7 +1,3 @@
-// ============================================================
-// BAZ + VITRIN — CLAUDE API
-// ============================================================
-
 'use strict';
 
 const Anthropic = require('@anthropic-ai/sdk');
@@ -27,8 +23,9 @@ const categoryList = () => {
 };
 
 // ── SAFE JSON PARSER ──────────────────────────────────────────
-// Handles Claude occasionally wrapping JSON in markdown fences
-// or returning multiple fence blocks concatenated.
+// Claude sometimes returns multiple JSON blocks when given conversation
+// history. We strip all fences, then try from the LAST valid JSON
+// object backwards — the last one is Claude's final answer.
 function safeParseJSON(text, fallback = {}) {
   if (!text) return fallback;
 
@@ -38,10 +35,17 @@ function safeParseJSON(text, fallback = {}) {
     .replace(/```/g, '')
     .trim();
 
-  // Step 2: Try parsing the cleaned text directly
+  // Step 2: Try parsing the full cleaned text directly
   try { return JSON.parse(cleaned); } catch {}
 
-  // Step 3: Extract the first complete {...} JSON object found
+  // Step 3: Find all complete {...} objects, try from LAST to FIRST
+  // Last match = Claude's most recent/correct answer
+  const matches = [...cleaned.matchAll(/\{[^{}]*\}/g)];
+  for (let i = matches.length - 1; i >= 0; i--) {
+    try { return JSON.parse(matches[i][0]); } catch {}
+  }
+
+  // Step 4: Try greedy match for nested objects
   try {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
@@ -68,72 +72,54 @@ Keep responses concise — people are reading on WhatsApp.`,
 
   fr: `Vous êtes Baz, un assistant intelligent pour la communauté haïtienne.
 Vous aidez les gens à trouver des entreprises et des services en Haïti et dans les villes de la diaspora.
-Vous pouvez aussi les aider à envoyer de l'argent et payer des services — frais scolaires, électricité, courses, entrepreneurs.
+Vous pouvez aussi les aider à envoyer de l'argent et payer des services.
 Parlez naturellement, chaleureusement et clairement.
 Réponses courtes — les gens lisent sur WhatsApp.`,
 };
 
 // ── DETECT TOPIC ──────────────────────────────────────────────
-// Single Claude call: returns intent type + category + location.
-// Replaces the old detectIntent + extractSearchParams two-call pattern.
-//
-// Returns one of:
-//   { type: 'category', category_slug: 'hair_beauty', city: null, country: null }
-//   { type: 'pay' }
-//   { type: 'onboard' }
-//   { type: 'status' }
-//   { type: 'greeting' }
-//   { type: 'unknown' }
+// Single call: returns intent type + category + location.
+// NOTE: We intentionally do NOT pass conversationHistory here.
+// Passing history caused Claude to generate one JSON response per
+// history message, flooding output and cutting off the real answer.
+// Topic detection only needs the current message.
 
-async function detectTopic(message, lang, conversationHistory = []) {
+async function detectTopic(message, lang) {
   const systemPrompt = `You are a classifier for Baz, a Haitian WhatsApp assistant.
 
-STEP 1 — Check for direct intents first:
-- pay: sending money, remittance, voye lajan, school fees, electricity bill, diaspora payment to Haiti
-- onboard: wants to list a business or sell ("mwen vle vann", "sell on baz", "vin vandè", "register my business")
-- status: asking about an existing order, payment, booking, or delivery
+Classify this single message. Respond with ONE JSON object only. No markdown. No code fences. No explanation.
+
+STEP 1 — Check direct intents first:
+- pay: sending money, remittance, voye lajan, school fees, electricity bill
+- onboard: wants to list a business or sell ("mwen vle vann", "sell on baz", "vin vandè")
+- status: asking about an existing order, payment, or delivery
 - greeting: hello, hi, bonjou, bonswa, salut, alo — with NO other intent
 
-STEP 2 — If none match, identify the category from this keyword map:
+STEP 2 — If none match, identify category:
 ${keywordPrompt()}
 
 Valid slugs: ${categoryList()}
 
-STEP 3 — If category found, also extract location if mentioned:
-- city: in English (e.g. "Boston", "Port-au-Prince", "Miami")
-- country: "HT" for Haiti, "US", "CA", "FR" for diaspora
-- Leave city/country null if not mentioned
+STEP 3 — Extract location if mentioned:
+- city in English, country as "HT"/"US"/"CA"/"FR", null if not mentioned
 
-Rules:
-- A single word like "cheve", "manje", "rad" is always a category match
-- Short or vague messages → category match, not unknown
-- Only return unknown if truly unclassifiable
+Single word messages like "cheve", "manje", "rad", "hair", "food" are ALWAYS category matches.
 
-Respond ONLY with valid JSON. No markdown. No explanation. No code fences.
-
-Direct intents:
-{ "type": "pay" }
-{ "type": "onboard" }
-{ "type": "status" }
-{ "type": "greeting" }
-{ "type": "unknown" }
-
-Category:
-{ "type": "category", "category_slug": "hair_beauty", "city": null, "country": null }
-{ "type": "category", "category_slug": "plumber", "city": "Boston", "country": "US" }`;
-
-  const messages = [
-    ...conversationHistory.slice(-4),
-    { role: 'user', content: message },
-  ];
+Respond with exactly ONE of these — nothing else:
+{"type":"pay"}
+{"type":"onboard"}
+{"type":"status"}
+{"type":"greeting"}
+{"type":"unknown"}
+{"type":"category","category_slug":"hair_beauty","city":null,"country":null}`;
 
   try {
     const res = await client.messages.create({
       model:       'claude-sonnet-4-5',
-      max_tokens:  300,
+      max_tokens:  150,
       temperature: 0,
       system:      systemPrompt,
-      messages,
+      messages:    [{ role: 'user', content: message }],
     });
 
     const text   = res.content[0]?.text?.trim() || '{}';
@@ -162,7 +148,7 @@ async function chat(userMessage, lang, conversationHistory = [], contextData = {
       city:     b.city,
       rating:   b.avg_rating,
     }));
-    systemSuffix = `\n\nSearch results to reference:\n${JSON.stringify(summary)}`;
+    systemSuffix = `\n\nSearch results:\n${JSON.stringify(summary)}`;
   }
 
   const messages = [
@@ -186,21 +172,12 @@ async function chat(userMessage, lang, conversationHistory = [], contextData = {
 
 // ── PARSE REMITTANCE REQUEST ──────────────────────────────────
 async function parseRemittanceRequest(message, lang) {
-  const prompt = `Parse this remittance or payment request from a Haitian diaspora user.
+  const prompt = `Parse this remittance request. Respond with ONE JSON object only. No markdown. No code fences.
 Message: "${message}"
 
-Respond ONLY with valid JSON. No markdown. No code fences.
-{
-  "total": 200,
-  "recipient_name": "Marie Jean",
-  "splits": [
-    { "type": "grocery",    "amount": 80,  "note": "Marché Salomon" },
-    { "type": "school_fee", "amount": 120, "note": "École Nationale" }
-  ]
-}
+{"total":200,"recipient_name":"Marie Jean","splits":[{"type":"grocery","amount":80,"note":"Marché Salomon"},{"type":"school_fee","amount":120,"note":"École Nationale"}]}
 
-Split types: grocery, school_fee, contractor, electricity, medical, general
-All fields optional. At least one split required.`;
+Split types: grocery, school_fee, contractor, electricity, medical, general`;
 
   try {
     const res = await client.messages.create({
@@ -216,8 +193,4 @@ All fields optional. At least one split required.`;
   }
 }
 
-module.exports = {
-  detectTopic,
-  chat,
-  parseRemittanceRequest,
-};
+module.exports = { detectTopic, chat, parseRemittanceRequest };
