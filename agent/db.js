@@ -165,36 +165,84 @@ async function getConversationHistory(conversationId, limit = 10) {
 // BUSINESSES (BAZ DIRECTORY)
 // ============================================================
 
-async function searchBusinesses({ query, categorySlug, city, country, limit = 5 }) {
-  let q = supabase
-    .from('businesses')
-    .select(`
-      *,
-      service_categories (slug, name_en, name_ht, name_fr, icon)
-    `)
-    .eq('status', 'active')
-    .limit(limit);
+// Keywords used as fallback when category_id lookup returns nothing
+const CATEGORY_KEYWORDS = {
+  restaurant:    ['restaurant', 'cuisine', 'grill', 'kitchen', 'food', 'bistro', 'lounge'],
+  hair_beauty:   ['hair', 'salon', 'beauty', 'barber', 'nails', 'braids', 'coiffure'],
+  grocery:       ['grocery', 'supermarket', 'market', 'provisions'],
+  medical:       ['medical', 'health', 'clinic', 'doctor', 'pharmacy', 'care'],
+  contractor:    ['construction', 'contractor', 'renovation', 'builder'],
+  driver:        ['transport', 'driver', 'taxi', 'car service', 'school bus'],
+  cook:          ['catering', 'chef', 'cook', 'bakery', 'pastry'],
+  tutor:         ['education', 'tutor', 'school', 'learning', 'training'],
+  mechanic:      ['mechanic', 'auto', 'repair', 'garage'],
+  cleaner:       ['cleaning', 'maid', 'janitorial', 'housekeeping'],
+  fashion:       ['fashion', 'clothing', 'boutique', 'apparel'],
+  food_products: ['bakery', 'pastry', 'sauce', 'spice', 'food product'],
+  jewelry:       ['jewelry', 'jewellery', 'accessory', 'gems'],
+  crafts:        ['crafts', 'handmade', 'artisan', 'basket'],
+};
 
+function buildBase() {
+  return supabase
+    .from('businesses')
+    .select('*, service_categories (slug, name_en, name_ht, name_fr, icon)')
+    .eq('status', 'active')
+    .order('is_featured', { ascending: false })
+    .order('avg_rating',  { ascending: false });
+}
+
+function applyLocation(q, { city, country }) {
+  if (city)    q = q.ilike('city', `%${city}%`);
+  if (country) q = q.eq('country', country);
+  return q;
+}
+
+async function searchBusinesses({ query, categorySlug, city, country, limit = 5 }) {
+  // ── Strategy 1: category_id exact match ──────────────────
   if (categorySlug) {
     const { data: cat } = await supabase
       .from('service_categories')
-      .select('id')
+      .select('id, name_en')
       .eq('slug', categorySlug)
       .single();
-    if (cat) q = q.eq('category_id', cat.id);
+
+    if (cat) {
+      let q = applyLocation(buildBase().eq('category_id', cat.id).limit(limit), { city, country });
+      const { data } = await q;
+      if (data?.length) return data;
+    }
   }
 
-  if (city)    q = q.ilike('city', `%${city}%`);
-  if (country) q = q.eq('country', country);
-  if (query)   q = q.or(`name.ilike.%${query}%,description.ilike.%${query}%`);
+  // ── Strategy 2: text search on query or message ───────────
+  if (query) {
+    let q = applyLocation(
+      buildBase()
+        .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+        .limit(limit),
+      { city, country }
+    );
+    const { data } = await q;
+    if (data?.length) return data;
+  }
 
-  q = q
-    .order('is_featured', { ascending: false })
-    .order('avg_rating',  { ascending: false });
+  // ── Strategy 3: keyword fallback for known categories ─────
+  // Catches businesses with NULL category_id by searching descriptions
+  if (categorySlug) {
+    const keywords = CATEGORY_KEYWORDS[categorySlug] || [categorySlug];
+    for (const kw of keywords) {
+      let q = applyLocation(
+        buildBase()
+          .or(`name.ilike.%${kw}%,description.ilike.%${kw}%`)
+          .limit(limit),
+        { city, country }
+      );
+      const { data } = await q;
+      if (data?.length) return data;
+    }
+  }
 
-  const { data, error } = await q;
-  if (error) throw new Error(`Search failed: ${error.message}`);
-  return data || [];
+  return [];
 }
 
 async function getBusinessById(id) {
