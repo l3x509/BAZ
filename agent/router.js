@@ -31,9 +31,9 @@ const MAX_MESSAGE_LENGTH = 1000;
 // ── COPY ─────────────────────────────────────────────────────
 const COPY = {
   greeting: {
-    ht: `Bonjou! 👋 Mwen se *Baz* — asistan ayisyen ou sou WhatsApp.\n\nEkri sa w bezwen, pa egzanp:\n\n💇 *cheve* — jwenn salon, achte oswa vann\n🍽️ *manje* — jwenn restoran\n🔧 *plonbye* — jwenn yon plonbye\n💸 *voye lajan* — voye lajan ann Ayiti\n👗 *rad* — mode ak fashon\n🛒 *komisyon* — livrezon manje\n\nOswa ekri nenpòt sa w bezwen!`,
-    en: `Hello! 👋 I'm *Baz* — your Haitian community assistant on WhatsApp.\n\nTell me what you need, for example:\n\n💇 *hair* — find a salon, buy or sell products\n🍽️ *food* — find a restaurant\n🔧 *plumber* — find a plumber\n💸 *send money* — send money to Haiti\n👗 *fashion* — clothing & accessories\n🛒 *grocery* — grocery delivery\n\nOr just type anything you need!`,
-    fr: `Bonjour! 👋 Je suis *Baz* — votre assistant haïtien sur WhatsApp.\n\nDites-moi ce dont vous avez besoin, par exemple:\n\n💇 *cheveux* — trouver un salon, acheter ou vendre\n🍽️ *restaurant* — trouver un restaurant\n🔧 *plombier* — trouver un plombier\n💸 *envoyer argent* — envoyer de l'argent en Haïti\n👗 *mode* — vêtements & accessoires\n\nOu écrivez simplement ce dont vous avez besoin!`,
+    ht: `👋 Byenvini nan*Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen, pa egzanp:\n\n💇 *cheve* — jwenn salon, achte oswa vann\n🍽️ *manje* — jwenn restoran\n🔧 *plonbye* — jwenn yon plonbye\n💸 *voye lajan* — voye lajan ann Ayiti\n👗 *rad* — mode ak fashon\n🛒 *komisyon* — livrezon manje\n\nOswa ekri nenpòt sa w bezwen!`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need, for example:\n\n💇 *hair* — find a salon, buy or sell products\n🍽️ *food* — find a restaurant\n🔧 *plumber* — find a plumber\n💸 *send money* — send money to Haiti\n👗 *fashion* — clothing & accessories\n🛒 *grocery* — grocery delivery\n\nOr just type anything you need!`,
+    fr: `👋 Je suis *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin, par exemple:\n\n💇 *cheveux* — trouver un salon, acheter ou vendre\n🍽️ *restaurant* — trouver un restaurant\n🔧 *plombier* — trouver un plombier\n💸 *envoyer argent* — envoyer de l'argent en Haïti\n👗 *mode* — vêtements & accessoires\n\nOu écrivez simplement ce dont vous avez besoin!`,
   },
   unknown: {
     ht: `Mwen pa konprann. Eseye di m:\n• Sa w ap *chèche* (restoran, plonbye, chofè...)\n• Sa w vle *achte* oswa *vann*\n• Ou vle *voye lajan* ann Ayiti`,
