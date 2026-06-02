@@ -61,8 +61,10 @@ async function sendLanguageSelection(to) {
 }
 
 // ── BUSINESS RESULTS ─────────────────────────────────────────
-// Shows name, rating, location, address, and phone.
-// Includes "more" prompt for pagination and "back" to return.
+// Shows: name (+ rating if available), address, phone.
+// FIX: removed neighborhood/city line — address already contains city.
+// FIX: replaced *0* with *menu* in all footers.
+// FIX: removed "Reponn ak nimewo pou kontakte" — feature not yet wired up.
 async function sendBusinessResults(to, businesses, lang, hasMore = false) {
   if (!businesses.length) return null;
 
@@ -71,28 +73,28 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false) {
     en: '📋 *Results:*',
     fr: '📋 *Résultats:*',
   };
+
   const morePrompt = {
-    ht: '_Ekri *plis* pou wè plis · *0* pou retounen_',
-    en: '_Type *more* for more results · *0* to go back_',
-    fr: '_Tapez *plus* pour voir plus · *0* pour revenir_',
+    ht: '_Ekri *plis* pou wè plis · *menu* pou retounen_',
+    en: '_Type *more* for more results · *menu* to go back_',
+    fr: '_Tapez *plus* pour voir plus · *menu* pour revenir_',
   };
+
   const noMorePrompt = {
-    ht: '_Reponn ak nimewo pou kontakte · *0* pou retounen_',
-    en: '_Reply with a number to contact · *0* to go back_',
-    fr: '_Répondez avec un numéro · *0* pour revenir_',
+    ht: '_Ekri *menu* pou retounen nan meni prensipal_',
+    en: '_Type *menu* to go back to main menu_',
+    fr: '_Tapez *menu* pour revenir au menu principal_',
   };
 
   const lines = [headers[lang] || headers.en, ''];
 
   businesses.forEach((b, i) => {
-    const verified  = b.is_verified ? ' ✅' : '';
-    const rating    = b.avg_rating > 0 ? ` ⭐${b.avg_rating}` : '';
-    const location  = [b.neighborhood, b.city].filter(Boolean).join(', ');
+    const verified = b.is_verified ? ' ✅' : '';
+    const rating   = b.avg_rating > 0 ? ` ⭐${b.avg_rating}` : '';
 
     lines.push(`${i + 1}. *${b.name}*${verified}${rating}`);
-    if (location)   lines.push(`   📍 ${location}`);
-    if (b.address)  lines.push(`   🏠 ${b.address}`);
-    if (b.phone)    lines.push(`   📞 ${b.phone}`);
+    if (b.address) lines.push(`   🏠 ${b.address}`);
+    if (b.phone)   lines.push(`   📞 ${b.phone}`);
     if (b.whatsapp && b.whatsapp !== b.phone) {
       lines.push(`   💬 wa.me/${b.whatsapp.replace(/\D/g, '')}`);
     }
@@ -119,9 +121,6 @@ async function sendBusinessDetail(to, business, lang) {
     '',
     business.description || '',
     '',
-    business.neighborhood
-      ? `📍 ${business.neighborhood}, ${business.city}`
-      : `📍 ${business.city || ''}`,
     business.address   ? `🏠 ${business.address}`                              : '',
     business.phone     ? `📞 ${business.phone}`                                : '',
     business.whatsapp  ? `💬 wa.me/${business.whatsapp.replace(/\D/g, '')}`   : '',
@@ -131,7 +130,9 @@ async function sendBusinessDetail(to, business, lang) {
       : '',
     business.is_verified ? '✅ Verified business' : '',
     '',
-    '_Type *0* to go back_',
+    lang === 'ht' ? '_Ekri *menu* pou retounen_'
+    : lang === 'fr' ? '_Tapez *menu* pour revenir_'
+    : '_Type *menu* to go back_',
   ].filter(Boolean).join('\n');
 
   return sendText(to, lines);
