@@ -198,7 +198,7 @@ function applyLocation(q, { city, country }) {
   return q;
 }
 
-async function searchBusinesses({ query, categorySlug, city, country, limit = 5 }) {
+async function searchBusinesses({ query, categorySlug, city, country, limit = 5, offset = 0 }) {
   // ── Strategy 1: category_id exact match ──────────────────
   if (categorySlug) {
     const { data: cat } = await supabase
@@ -208,7 +208,7 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5 
       .single();
 
     if (cat) {
-      let q = applyLocation(buildBase().eq('category_id', cat.id).limit(limit), { city, country });
+      let q = applyLocation(buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1), { city, country });
       const { data } = await q;
       if (data?.length) return data;
     }
@@ -219,7 +219,7 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5 
     let q = applyLocation(
       buildBase()
         .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
-        .limit(limit),
+        .range(offset, offset + limit - 1),
       { city, country }
     );
     const { data } = await q;
