@@ -166,6 +166,15 @@ async function getConversationHistory(conversationId, limit = 10) {
 // ============================================================
 
 // Keywords used as fallback when category_id lookup returns nothing
+// ── CITY ALIASES ─────────────────────────────────────────────
+// Maps common user inputs to searchable city names
+const CITY_ALIASES = {
+  'pap': 'Port-au-Prince', 'port au prince': 'Port-au-Prince',
+  'pòtoprens': 'Port-au-Prince', 'potoprens': 'Port-au-Prince',
+  'cap': 'Cap-Haïtien', 'cap haitien': 'Cap-Haïtien',
+  'petit goave': 'Petit-Goâve', 'gonaives': 'Gonaïves',
+};
+
 const CATEGORY_KEYWORDS = {
   restaurant:    ['restaurant', 'cuisine', 'grill', 'kitchen', 'food', 'bistro', 'lounge'],
   hair_beauty:   ['hair', 'salon', 'beauty', 'barber', 'nails', 'braids', 'coiffure'],
@@ -198,7 +207,10 @@ function applyLocation(q, { city, country }) {
   return q;
 }
 
-async function searchBusinesses({ query, categorySlug, city, country, limit = 5, offset = 0 }) {
+async function searchBusinesses({ query, categorySlug, city, country, limit = 5, offset = 0, userCity = null, userCountry = null }) {
+  // Normalise city aliases
+  if (city) city = CITY_ALIASES[city.toLowerCase()] || city;
+  if (userCity) userCity = CITY_ALIASES[userCity.toLowerCase()] || userCity;
   // ── Strategy 1: category_id exact match ──────────────────
   if (categorySlug) {
     const { data: cat } = await supabase
@@ -208,9 +220,24 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5,
       .single();
 
     if (cat) {
+      // Try with user-specified city first
       let q = applyLocation(buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1), { city, country });
       const { data } = await q;
       if (data?.length) return data;
+
+      // Fall back to user's saved location city
+      if (!city && userCity) {
+        let q2 = applyLocation(buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1), { city: userCity, country: userCountry });
+        const { data: data2 } = await q2;
+        if (data2?.length) return data2;
+      }
+
+      // Broaden — no city filter (show all matching category)
+      if (city || userCity) {
+        let q3 = buildBase().eq('category_id', cat.id).range(offset, offset + limit - 1);
+        const { data: data3 } = await q3;
+        if (data3?.length) return data3;
+      }
     }
   }
 
