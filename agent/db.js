@@ -187,16 +187,21 @@ const CATEGORY_KEYWORDS = {
   medical:       ['medical center', 'health clinic', 'pharmacy', 'doktè', 'sante'],
   contractor:    ['construction', 'contractor', 'renovation', 'builder', 'remodeling'],
   driver:        ['car service', 'taxi service', 'school bus', 'chauffeur', 'transpò'],
-  cook:          ['catering', 'private chef', 'bakery', 'pastry shop', 'traiteur'],
-  tutor:         ['tutoring', 'learning center', 'after school', 'training center', 'lekòl'],
+  cook:          ['catering', 'private chef', 'bakery', 'pastry shop', 'traiteur', 'boulangerie'],
+  tutor:         ['tutoring', 'learning center', 'after school', 'training center', 'lekòl', 'dual language'],
   mechanic:      ['auto repair', 'auto mechanic', 'car repair', 'garage'],
   cleaner:       ['cleaning service', 'maid service', 'janitorial', 'housekeeping', 'nettoyage'],
   fashion:       ['fashion boutique', 'clothing store', 'boutique', 'apparel'],
-  food_products: ['food product', 'sauce ayisyen', 'epis', 'pwodui manje', 'haitian spice'],
-  jewelry:       ['jewelry', 'bijou', 'jewellery', 'accessories store'],
-  crafts:        ['handmade crafts', 'artisan', 'haitian art', 'craft store'],
-  plumber:       ['plumbing', 'plombier', 'pipe repair'],
+  plumber:       ['plumbing', 'plombier', 'pipe repair', 'tiyo'],
   electrician:   ['electrician', 'electrical contractor', 'elektrisyen'],
+  // New categories
+  legal:         ['immigration lawyer', 'immigration attorney', 'legal aid', 'immigration services', 'law office', 'legal advocacy', 'avoka', 'immigration counseling'],
+  childcare:     ['childcare', 'daycare', 'day care', 'preschool', 'early education', 'gadri', 'child care center', 'learning academy'],
+  shipping:      ['cargo', 'shipping', 'freight', 'kago', 'freight forwarding', 'haiti cargo'],
+  tax_notary:    ['tax preparation', 'tax prep', 'notary', 'notè', 'tax service', 'multi services', 'business services'],
+  real_estate:   ['realtor', 'real estate', 'imobilye', 'realty', 'property', 'real estate agent'],
+  church:        ['church', 'legliz', 'congregation', 'haitian church', 'baptist', 'adventist', 'pentecostal', 'parish', 'ministry'],
+  services:      ['service', 'sèvis', 'multi-service', 'community service'],
 };
 
 function buildBase() {
