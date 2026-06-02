@@ -91,8 +91,11 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false) {
   businesses.forEach((b, i) => {
     const verified = b.is_verified ? ' ✅' : '';
     const rating   = b.avg_rating > 0 ? ` ⭐${b.avg_rating}` : '';
+    // Premium featured businesses get a crown badge + description line
+    const crown    = b.is_featured ? '👑 ' : '';
 
-    lines.push(`${i + 1}. *${b.name}*${verified}${rating}`);
+    lines.push(`${i + 1}. ${crown}*${b.name}*${verified}${rating}`);
+    if (b.is_featured && b.description) lines.push(`   _${b.description}_`);
     if (b.address) lines.push(`   🏠 ${b.address}`);
     if (b.phone)   lines.push(`   📞 ${b.phone}`);
     if (b.whatsapp && b.whatsapp !== b.phone) {
