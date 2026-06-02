@@ -362,15 +362,15 @@ async function showMoreResults(user, lang) {
 
   if (!businesses.length) {
     const noMore = {
-      ht: '📋 Pa gen plis rezilta.
+      ht: `📋 Pa gen plis rezilta.
 
-_*0* pou retounen_',
-      en: '📋 No more results.
+_*0* pou retounen_`,
+      en: `📋 No more results.
 
-_*0* to go back_',
-      fr: '📋 Plus de résultats.
+_*0* to go back_`,
+      fr: `📋 Plus de résultats.
 
-_*0* pour revenir_',
+_*0* pour revenir_`,
     };
     return sendText(user.whatsapp_id, noMore[lang] || noMore.en);
   }
