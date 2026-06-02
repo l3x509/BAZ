@@ -19,9 +19,6 @@ const HANDLERS = {
 const PENDING_TTL_MS     = 5 * 60 * 1000;
 const MAX_MESSAGE_LENGTH = 1000;
 
-// ── SERVICES SUBMENU ─────────────────────────────────────────
-// Individual service worker slugs — accessed via the "sèvis" umbrella.
-// Listed in the order they appear in the submenu.
 const SERVICE_OPTIONS = [
   { num: 1,  slug: 'plumber',     icon: '🔧', label: { en: 'Plumber',          ht: 'Plonbye',    fr: 'Plombier'     }},
   { num: 2,  slug: 'electrician', icon: '⚡', label: { en: 'Electrician',       ht: 'Elektrisyen', fr: 'Électricien' }},
@@ -35,18 +32,17 @@ const SERVICE_OPTIONS = [
   { num: 10, slug: 'real_estate', icon: '🏠', label: { en: 'Real Estate',       ht: 'Imobilye',   fr: 'Immobilier'   }},
 ];
 
-// ── ALL CATEGORIES LIST — shown when user types "tout" ────────
 const ALL_CATEGORIES_TEXT = {
-  ht: `📋 *Tout kategori Baz:*\n\n💇 *cheve* — hair & beauty\n🍽️ *manje* — restaurant\n🛒 *komisyon* — grocery\n👗 *rad* — fashion\n⚖️ *avoka* — legal & immigration\n👶 *gadri* — childcare\n📦 *kago* — shipping to Haiti\n🧾 *taks* — tax & notary\n⛪ *legliz* — church & community\n🔧 *sèvis* — plumber, electrician & more\n📋 *lòt* — other services\n\n_Ekri non kategori a pou jwenn biznis._`,
-  en: `📋 *All Baz categories:*\n\n💇 *hair* — hair & beauty\n🍽️ *food* — restaurant\n🛒 *grocery* — grocery store\n👗 *fashion* — clothing\n⚖️ *lawyer* — legal & immigration\n👶 *childcare* — daycare & preschool\n📦 *shipping* — cargo to Haiti\n🧾 *tax* — tax & notary\n⛪ *church* — church & community\n🔧 *services* — plumber, electrician & more\n📋 *other* — other services\n\n_Type any category to find businesses._`,
-  fr: `📋 *Toutes les catégories Baz:*\n\n💇 *cheveux* — coiffure & beauté\n🍽️ *restaurant* — restaurant\n🛒 *épicerie* — épicerie\n👗 *mode* — vêtements\n⚖️ *avocat* — juridique & immigration\n👶 *garderie* — garde d'enfants\n📦 *expédition* — colis vers Haïti\n🧾 *impôts* — impôts & notaire\n⛪ *église* — église & communauté\n🔧 *services* — plombier, électricien & plus\n📋 *autre* — autres services\n\n_Tapez un nom de catégorie pour trouver des entreprises._`,
+  ht: `📋 *Tout kategori Baz:*\n\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n🛒 *komisyon* — grocery\n👗 *rad* — fashion\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n⛪ *legliz* — church & community\n🛠️ *sèvis* — plumber, electrician & more\n📋 *lòt* — other services\n\n_Ekri non kategori a pou jwenn biznis._`,
+  en: `📋 *All Baz categories:*\n\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n🛒 *grocery* — grocery store\n👗 *fashion* — clothing\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n⛪ *church* — church & community\n🛠️ *services* — plumber, electrician & more\n📋 *other* — other services\n\n_Type any category to find businesses._`,
+  fr: `📋 *Toutes les catégories Baz:*\n\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n🛒 *épicerie* — épicerie\n👗 *mode* — vêtements\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n⛪ *église* — église & communauté\n🛠️ *services* — plombier, électricien & plus\n📋 *autre* — autres services\n\n_Tapez un nom de catégorie pour trouver des entreprises._`,
 };
 
 const COPY = {
   greeting: {
-    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n💇 *cheve* — hair & beauty\n🍽️ *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n👶 *gadri* — childcare\n📦 *kago* — shipping to Haiti\n🧾 *taks* — tax & notary\n🔧 *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
-    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n💇 *hair* — hair & beauty\n🍽️ *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n👶 *childcare* — daycare & preschool\n📦 *shipping* — cargo to Haiti\n🧾 *tax* — tax & notary\n🔧 *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
-    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n💇 *cheveux* — coiffure & beauté\n🍽️ *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n👶 *garderie* — garde d'enfants\n📦 *expédition* — colis vers Haïti\n🧾 *impôts* — impôts & notaire\n🔧 *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n🛠️ *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n🛠️ *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
+    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n🛠️ *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
   },
   unknown: {
     ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, avoka, cheve...)\n• *menu* — pou retounen nan meni prensipal\n• *tout* — pou wè tout kategori yo\n\n_Konsèy: ajoute vil la — "cheve Boston" oswa "avoka Brockton"_`,
@@ -152,7 +148,6 @@ async function route({ user, message, lang, conversationHistory }) {
     }
 
     // ── Resolve pending SERVICE CATEGORY selection ────────────
-    // Must run before pending_mode so number inputs go to right handler
     if (sessionState.pending_service_cat) {
       const handled = await resolveServiceCategory({
         pending: sessionState.pending_service_cat, message, user, lang, conversationHistory,
@@ -175,8 +170,6 @@ async function route({ user, message, lang, conversationHistory }) {
     console.log(`[router] topic=${JSON.stringify(topic)} user=${user.whatsapp_id}`);
 
     // ── Auto-update language (only on multi-word messages) ────
-    // Single words like "Boston", "0", city names must not override
-    // the user's saved language mid-conversation.
     const isSubstantiveMessage = message.trim().split(/\s+/).length >= 2;
     if (topic.lang && topic.lang !== lang && isSubstantiveMessage) {
       try { await db.updateUser(user.id, { language: topic.lang }); } catch {}
@@ -219,7 +212,6 @@ async function route({ user, message, lang, conversationHistory }) {
 async function handleCategory({ topic, user, message, lang, conversationHistory, forceMenu = false, ignorePreference = false }) {
   const { category_slug, city, country } = topic;
 
-  // ── Services umbrella → show service worker submenu ───────
   if (category_slug === 'services') {
     return await handleServicesMenu(user, lang);
   }
@@ -235,7 +227,6 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
   const resolvedCity    = city    || user.location_city    || null;
   const resolvedCountry = country || user.location_country || null;
 
-  // All categories are find-only now — single mode, dispatch directly
   if (allOptions.length === 1) {
     try {
       await db.updateSessionState(user.id, { ...sessionState, last_category: category_slug });
@@ -249,7 +240,6 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
     });
   }
 
-  // Multi-mode fallback (future-proofing)
   const menuText = buildModeMenu(cat, allOptions, lang);
   try {
     await db.updateSessionState(user.id, { ...sessionState, last_category: category_slug });
@@ -263,9 +253,9 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
 // ════════════════════════════════════════════════════════════
 async function handleServicesMenu(user, lang) {
   const header = {
-    ht: `🔧 *Ki sèvis ou bezwen?*\n`,
-    en: `🔧 *How can I help you?*\n`,
-    fr: `🔧 *Comment puis je vous aider?*\n`,
+    ht: `🛠️ *Ki sèvis ou bezwen?*\n`,
+    en: `🛠️ *What service do you need?*\n`,
+    fr: `🛠️ *Quel service cherchez-vous?*\n`,
   };
   const back = {
     ht: `0. 🏠 Meni prensipal`,
@@ -276,7 +266,6 @@ async function handleServicesMenu(user, lang) {
     .map(s => `${s.num}. ${s.icon} ${s.label[lang] || s.label.en}`)
     .join('\n');
 
-  // Save pending service selection so next message resolves it
   try {
     await db.updateSessionState(user.id, {
       ...(user.session_state || {}),
@@ -299,16 +288,14 @@ async function handleServicesMenu(user, lang) {
 async function resolveServiceCategory({ pending, message, user, lang, conversationHistory }) {
   if (Date.now() > pending.expires_at) return false;
 
-  const text    = message.trim().toLowerCase();
-  const num     = parseInt(text, 10);
-  let selected  = null;
+  const text   = message.trim().toLowerCase();
+  const num    = parseInt(text, 10);
+  let selected = null;
 
-  // Numeric selection
   if (!isNaN(num) && num >= 1 && num <= SERVICE_OPTIONS.length) {
     selected = SERVICE_OPTIONS.find(s => s.num === num) || null;
   }
 
-  // Text match against labels (all languages)
   if (!selected) {
     for (const svc of SERVICE_OPTIONS) {
       const labels = Object.values(svc.label).map(l => l.toLowerCase());
