@@ -15,11 +15,14 @@ const vitrinSell     = require('./handlers/vitrin-sell');
 const vitrinOrder    = require('./handlers/vitrin-order');
 
 const HANDLERS = {
-  find:        findHandler,
-  vitrin_buy:  vitrinBuy,
-  vitrin_sell: vitrinSell,
+  find:         findHandler,
+  vitrin_buy:   vitrinBuy,
+  vitrin_sell:  vitrinSell,
   vitrin_order: vitrinOrder,
 };
+
+// Handlers that are stubs (coming soon) — filtered out of menus
+const STUB_HANDLERS = new Set(['vitrin_buy', 'vitrin_sell', 'vitrin_order']);
 
 const PENDING_TTL_MS     = 5 * 60 * 1000;
 const MAX_MESSAGE_LENGTH = 1000;
@@ -115,7 +118,8 @@ async function route({ user, message, lang, conversationHistory }) {
             city: null, country: null,
           },
           user, message, lang, conversationHistory,
-          forceMenu: true,  // always show menu on explicit back
+          forceMenu: false,       // still filter stubs on back
+          ignorePreference: true, // but always show menu (ignore saved mode preference)
         });
       }
       return sendText(user.whatsapp_id, COPY.greeting[lang] || COPY.greeting.en);
@@ -172,56 +176,70 @@ async function route({ user, message, lang, conversationHistory }) {
 // ════════════════════════════════════════════════════════════
 // CATEGORY HANDLER
 // ════════════════════════════════════════════════════════════
-async function handleCategory({ topic, user, message, lang, conversationHistory, forceMenu = false }) {
+async function handleCategory({ topic, user, message, lang, conversationHistory, forceMenu = false, ignorePreference = false }) {
   const { category_slug, city, country } = topic;
-  const options = getModeOptions(category_slug, lang);
+  const sessionState = user.session_state || {};
+  const cat          = bySlug(category_slug);
+  const allOptions   = getModeOptions(category_slug, lang);
 
-  if (!options.length) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
+  if (!allOptions.length || !cat) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
 
-  // Single mode — dispatch directly
+  // Filter out stub handlers — only show modes that actually work
+  const options = forceMenu
+    ? allOptions
+    : allOptions.filter(o => !STUB_HANDLERS.has(o.handler));
+
+  // ALL modes are stubs → single coming-soon message, no menu
+  if (!options.length) {
+    const msg = {
+      ht: `🛍️ *${cat.name.ht}* ap vini sou Vitrin byento!\n\nVandè ayisyen yo pral ka vann dirèkteman sou WhatsApp. Rete tann!\n\n_Ekri *0* pou retounen_`,
+      en: `🛍️ *${cat.name.en}* is coming soon on Vitrin!\n\nHaitian vendors will sell directly through WhatsApp. Stay tuned!\n\n_Type *0* to go back_`,
+      fr: `🛍️ *${cat.name.fr}* arrive bientôt sur Vitrin!\n\nLes vendeurs haïtiens vendront directement sur WhatsApp.\n\n_Tapez *0* pour revenir_`,
+    };
+    return sendText(user.whatsapp_id, msg[lang] || msg.en);
+  }
+
+  const resolvedCity    = city    || user.location_city    || null;
+  const resolvedCountry = country || user.location_country || null;
+
+  // Single real mode → dispatch directly, no menu
   if (options.length === 1) {
     return dispatch(options[0].handler, {
       user, message, lang, conversationHistory,
       category: category_slug,
-      city:     city    || user.session_state?.last_search?.city    || user.location_city    || null,
-      country:  country || user.session_state?.last_search?.country || user.location_country || null,
+      city:     resolvedCity,
+      country:  resolvedCountry,
       mode:     options[0].mode,
     });
   }
 
-  const sessionState = user.session_state || {};
-
-  // If user has a saved mode preference AND we're not forcing the menu → skip menu
-  if (!forceMenu && sessionState.mode_preferences?.[category_slug]) {
+  // If user has a saved mode preference AND not ignoring it → skip menu
+  if (!forceMenu && !ignorePreference && sessionState.mode_preferences?.[category_slug]) {
     const preferredMode = sessionState.mode_preferences[category_slug];
     const preferred     = options.find(o => o.mode === preferredMode);
     if (preferred) {
-      const switchHint = {
-        ht: `_Ou ka ekri *options* pou wè tout chwa yo_`,
+      const hint = {
+        ht: `_Ekri *options* pou wè tout chwa yo_`,
         en: `_Type *options* to see all choices_`,
         fr: `_Tapez *options* pour voir tous les choix_`,
       };
-      // Dispatch directly to preferred mode — no menu shown
       await dispatch(preferred.handler, {
         user, message, lang, conversationHistory,
         category: category_slug,
-        city:     city    || user.location_city    || null,
-        country:  country || user.location_country || null,
+        city:     resolvedCity,
+        country:  resolvedCountry,
         mode:     preferred.mode,
       });
-      // Append hint as a follow-up
       setTimeout(() => {
-        sendText(user.whatsapp_id, switchHint[lang] || switchHint.en).catch(() => {});
+        sendText(user.whatsapp_id, hint[lang] || hint.en).catch(() => {});
       }, 1500);
       return;
     }
   }
 
-  // Show mode menu
-  const cat      = bySlug(category_slug);
+  // Show mode menu with real options only
   const menuText = buildModeMenu(cat, options, lang);
 
-  // Save last_category for back navigation
   try {
     await db.updateSessionState(user.id, {
       ...sessionState,
@@ -229,7 +247,7 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
     });
   } catch {}
 
-  await savePendingMode(user, { category_slug, city, country, options });
+  await savePendingMode(user, { category_slug, city: resolvedCity, country: resolvedCountry, options });
   return sendText(user.whatsapp_id, menuText);
 }
 
