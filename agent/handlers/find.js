@@ -1,31 +1,48 @@
 const db = require('../db');
 const wa = require('../whatsapp');
-const { extractSearchParams, chat } = require('../claude');
+const { chat } = require('../claude');
 const { emit } = require('../utils/events');
 
 // ============================================================
 // FIND HANDLER
-// User wants to find a business or service
+// Entry point called by router.js: handler.handle(context)
+//
+// Context shape from router:
+//   { user, message, lang, conversationHistory,
+//     category, city, country, mode }
+//
+// category, city, country are already extracted by detectTopic()
+// in claude.js — no second Claude API call needed here.
 // ============================================================
 
-async function handleFind({ user, conversation, content, lang }) {
-  // Extract structured search params from the natural language message
-  const params = await extractSearchParams(content, lang);
+async function handle({ user, message, lang, conversationHistory, category, city, country, mode }) {
+  // Get or create active conversation
+  let conversation = await db.getActiveConversation(user.id);
+  if (!conversation) {
+    conversation = await db.createConversation(user.id, user.whatsapp_id, 'find');
+  }
 
-  // Search the directory
+  // Search using params already extracted by the router
+  // category, city, country come directly from detectTopic() — no extra API call
   const businesses = await db.searchBusinesses({
-    query: params.query,
-    categorySlug: params.category,
-    city: params.city,
-    country: params.country,
+    query:        message,
+    categorySlug: category || null,
+    city:         city     || null,
+    country:      country  || null,
     limit: 5,
   });
 
-  // Log event (TwinZile)
+  // Log search event (TwinZile — off by default)
   await emit('search_performed', {
     user,
     conversation,
-    payload: { query: content, params, result_count: businesses.length },
+    payload: {
+      query:        message,
+      category,
+      city,
+      country,
+      result_count: businesses.length,
+    },
   });
 
   if (!businesses.length) {
@@ -38,19 +55,23 @@ async function handleFind({ user, conversation, content, lang }) {
     return;
   }
 
-  // Store results in conversation context for follow-up
+  // Store results in conversation context for follow-up selections
   await db.updateConversation(conversation.id, {
     intent: 'find',
-    context: { ...conversation.context, last_search: params, last_results: businesses.map(b => b.id) },
+    context: {
+      ...conversation.context,
+      last_search:  { category, city, country, query: message },
+      last_results: businesses.map(b => b.id),
+    },
   });
 
-  // Send results as interactive list
+  // Send formatted results
   await wa.sendBusinessResults(user.whatsapp_id, businesses, lang);
 }
 
 // ============================================================
 // BUSINESS SELECTED
-// User tapped on a business from the list
+// User tapped on a business from the results list
 // ============================================================
 
 async function handleBusinessSelected({ user, conversation, businessId, lang }) {
@@ -70,8 +91,12 @@ async function handleBusinessSelected({ user, conversation, businessId, lang }) 
     user,
     conversation,
     entityType: 'business',
-    entityId: business.id,
-    payload: { business_name: business.name, city: business.city, country: business.country },
+    entityId:   business.id,
+    payload: {
+      business_name: business.name,
+      city:          business.city,
+      country:       business.country,
+    },
   });
 
   await db.updateConversation(conversation.id, {
@@ -83,7 +108,7 @@ async function handleBusinessSelected({ user, conversation, businessId, lang }) 
 
 // ============================================================
 // CONTACT BUSINESS
-// User wants to contact/inquire about a business
+// User wants to contact or inquire about a business
 // ============================================================
 
 async function handleContactBusiness({ user, conversation, businessId, lang }) {
@@ -91,31 +116,32 @@ async function handleContactBusiness({ user, conversation, businessId, lang }) {
   if (!business) return;
 
   await db.createInquiry({
-    userId: user.id,
+    userId:     user.id,
     businessId: business.id,
-    message: `Contact request via WhatsApp`,
+    message:    'Contact request via WhatsApp',
   });
 
   await emit('inquiry_created', {
     user,
     conversation,
     entityType: 'business',
-    entityId: business.id,
+    entityId:   business.id,
   });
 
+  const waNumber = business.whatsapp?.replace(/\D/g, '');
   const contactMsg = {
-    ht: business.whatsapp
-      ? `✅ *${business.name}*\n\nOu ka kontakte yo dirèkteman:\n📱 wa.me/${business.whatsapp.replace(/\D/g, '')}\n📞 ${business.phone || ''}`
+    ht: waNumber
+      ? `✅ *${business.name}*\n\nOu ka kontakte yo dirèkteman:\n📱 wa.me/${waNumber}\n📞 ${business.phone || ''}`
       : `✅ *${business.name}*\n\n📞 ${business.phone || 'Nimewo pa disponib'}`,
-    en: business.whatsapp
-      ? `✅ *${business.name}*\n\nContact them directly:\n📱 wa.me/${business.whatsapp.replace(/\D/g, '')}\n📞 ${business.phone || ''}`
+    en: waNumber
+      ? `✅ *${business.name}*\n\nContact them directly:\n📱 wa.me/${waNumber}\n📞 ${business.phone || ''}`
       : `✅ *${business.name}*\n\n📞 ${business.phone || 'Phone not available'}`,
-    fr: business.whatsapp
-      ? `✅ *${business.name}*\n\nContactez-les directement:\n📱 wa.me/${business.whatsapp.replace(/\D/g, '')}\n📞 ${business.phone || ''}`
+    fr: waNumber
+      ? `✅ *${business.name}*\n\nContactez-les directement:\n📱 wa.me/${waNumber}\n📞 ${business.phone || ''}`
       : `✅ *${business.name}*\n\n📞 ${business.phone || 'Numéro non disponible'}`,
   };
 
   await wa.sendText(user.whatsapp_id, contactMsg[lang] || contactMsg.en);
 }
 
-module.exports = { handleFind, handleBusinessSelected, handleContactBusiness };
+module.exports = { handle, handleFind: handle, handleBusinessSelected, handleContactBusiness };
