@@ -2,6 +2,7 @@ require('dotenv').config();
 const express                                    = require('express');
 const { handleWebhook, validateTwilioSignature } = require('./webhook');
 const { handleVendorRegister }                   = require('./handlers/vendor-register');
+const { handleSubmit: handleEventSubmit }          = require('./handlers/events');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -94,6 +95,10 @@ app.post('/webhook', validateTwilioSignature, rateLimit(30, 60_000), handleWebho
 // Vendor registration from bazht.com/vendor.html
 // Strict limit — 5 submissions/min per IP prevents spam registrations
 app.post('/vendor/register', rateLimit(5, 60_000), handleVendorRegister);
+
+// Event submission from BazEventFlow.jsx (React intake component)
+// Saves as status:'pending' — approve in Supabase to make live
+app.post('/events/submit', rateLimit(20, 60_000), handleEventSubmit);
 
 // Analytics dashboard — protected by ADMIN_SECRET query param
 // Accessible at /admin/analytics and /admin/analytics/data
