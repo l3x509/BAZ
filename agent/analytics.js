@@ -15,10 +15,17 @@ const express = require('express');
 const router  = express.Router();
 const { createClient } = require('@supabase/supabase-js');
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+// Lazy init - created on first request, not at module load.
+// Prevents a missing env var from crashing the entire server on startup.
+let _supabase = null;
+function getSupabase() {
+  if (!_supabase) {
+    const key = process.env.SUPABASE_SERVICE_KEY;
+    if (!key) throw new Error('SUPABASE_SERVICE_KEY not set in Railway env vars');
+    _supabase = createClient(process.env.SUPABASE_URL, key);
+  }
+  return _supabase;
+}
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || null;
 
