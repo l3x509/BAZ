@@ -1,183 +1,323 @@
 -- ============================================================
--- BAZ SEED DATA — businesses table
--- Run this in Supabase SQL Editor
--- Categories are already seeded in schema.sql
--- ⚠️  Review names/details before using in production
---     Generated from general knowledge, not direct cultural source
+-- BAZ — COMPLETE DATABASE SCHEMA
+-- Single source of truth. Run this on a fresh Supabase project
+-- to recreate the entire database from scratch.
+--
+-- Last updated: 2026-06-03
 -- ============================================================
 
-INSERT INTO businesses (
-  category_id, name, description, phone, whatsapp,
-  city, country, neighborhood,
-  status, is_verified, languages, listing_tier,
-  avg_rating, review_count
-)
+-- ── Extensions ───────────────────────────────────────────────
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm"; -- fast text search
 
-SELECT
-  c.id,
-  b.name, b.description, b.phone, b.whatsapp,
-  b.city, b.country, b.neighborhood,
-  'active'::business_status,
-  b.is_verified,
-  b.languages,
-  'free',
-  b.avg_rating,
-  b.review_count
-FROM (VALUES
+-- ============================================================
+-- CORE TABLES
+-- ============================================================
 
-  -- ── PORT-AU-PRINCE ──────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+  id                UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  whatsapp_id       TEXT        NOT NULL UNIQUE,
+  name              TEXT,
+  language          TEXT        DEFAULT 'en',       -- 'en' | 'ht' | 'fr'
+  role              TEXT        DEFAULT 'user',      -- 'user' | 'vendor' | 'admin'
+  location_city     TEXT,
+  location_country  TEXT,
+  session_state     JSONB       DEFAULT '{}',
+  last_seen_at      TIMESTAMPTZ DEFAULT NOW(),
+  created_at        TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('plumber',     'Plonbye Rapid PAP',
-   'Plonbye eksperyanse pou tout reparasyon dlo. Disponib 7j/7.',
-   '+50937000001', '+50937000001',
-   'Port-au-Prince', 'HT', 'Delmas',
-   true, ARRAY['ht','fr'], 4.7, 12),
+CREATE INDEX IF NOT EXISTS idx_users_whatsapp    ON users (whatsapp_id);
+CREATE INDEX IF NOT EXISTS idx_users_last_seen   ON users (last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_users_role        ON users (role);
 
-  ('electrician', 'Elektro Ayiti',
-   'Entèpozisyon ak reparasyon sistèm elektrik. Kaye biznis ak kay.',
-   '+50937000002', '+50937000002',
-   'Port-au-Prince', 'HT', 'Pétion-Ville',
-   true, ARRAY['ht','fr'], 4.5, 8),
+-- ─────────────────────────────────────────────────────────────
 
-  ('restaurant',  'Resto Kay Manman',
-   'Manje ayisyen otantik. Griyo, tasso, legim, soup joumou chak dimanch.',
-   '+50937000003', '+50937000003',
-   'Port-au-Prince', 'HT', 'Turgeau',
-   true, ARRAY['ht','fr'], 4.9, 34),
+CREATE TABLE IF NOT EXISTS service_categories (
+  id              UUID    DEFAULT gen_random_uuid() PRIMARY KEY,
+  slug            TEXT    NOT NULL UNIQUE,
+  name_en         TEXT    NOT NULL,
+  name_ht         TEXT    NOT NULL,
+  name_fr         TEXT    NOT NULL,
+  icon            TEXT,
+  description_en  TEXT,
+  description_ht  TEXT,
+  description_fr  TEXT,
+  is_active       BOOLEAN DEFAULT true,
+  sort_order      INTEGER DEFAULT 99,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('driver',      'Chofè Servis Pétion-Ville',
-   'Transpò fiyab nan tout zòn Port-au-Prince. Rézèvasyon avan prefere.',
-   '+50937000004', '+50937000004',
-   'Port-au-Prince', 'HT', 'Pétion-Ville',
-   false, ARRAY['ht','fr'], 4.3, 5),
+CREATE INDEX IF NOT EXISTS idx_categories_slug   ON service_categories (slug);
+CREATE INDEX IF NOT EXISTS idx_categories_active ON service_categories (is_active, sort_order);
 
-  ('grocery',     'Komisyon Lakay',
-   'Livrezon komisyon nan tout Delmas ak Pétion-Ville. Mache Salomon ak Marché en Fer.',
-   '+50937000005', '+50937000005',
-   'Port-au-Prince', 'HT', 'Delmas',
-   true, ARRAY['ht'], 4.6, 19),
+-- ─────────────────────────────────────────────────────────────
 
-  ('contractor',  'Konstriksyon Toussaint',
-   'Konstriksyon, renovasyon, ak entretyen batiman. Devis gratis.',
-   '+50937000006', '+50937000006',
-   'Port-au-Prince', 'HT', 'Tabarre',
-   true, ARRAY['ht','fr'], 4.4, 7),
+CREATE TABLE IF NOT EXISTS businesses (
+  id               UUID    DEFAULT gen_random_uuid() PRIMARY KEY,
+  name             TEXT    NOT NULL,
+  description      TEXT,
+  category_id      UUID    REFERENCES service_categories (id) ON DELETE SET NULL,
+  owner_id         UUID    REFERENCES users (id) ON DELETE SET NULL,
 
-  ('tutor',       'Pwofesè Matematik Marie',
-   'Kours prive matematik ak syans pou elèv primè ak segondè.',
-   '+50937000007', '+50937000007',
-   'Port-au-Prince', 'HT', 'Bourdon',
-   false, ARRAY['ht','fr'], 5.0, 3),
+  -- Status & visibility
+  status           TEXT    DEFAULT 'pending',   -- 'active' | 'pending' | 'inactive'
+  is_featured      BOOLEAN DEFAULT false,       -- paid premium placement
+  is_verified      BOOLEAN DEFAULT false,       -- manually verified by Baz team
 
-  ('cleaner',     'Netwayaj Propre',
-   'Netwayaj kay, biwo, ak apre evènman. Ekip pwofesyonèl.',
-   '+50937000008', '+50937000008',
-   'Port-au-Prince', 'HT', 'Delmas',
-   false, ARRAY['ht'], 4.2, 6),
+  -- Ratings & analytics
+  avg_rating       NUMERIC (3,2) DEFAULT 0,
+  review_count     INTEGER DEFAULT 0,
+  inquiry_count    INTEGER DEFAULT 0,
+  impression_count INTEGER DEFAULT 0,          -- appears in search results
 
-  ('mechanic',    'Mekanisyen Auto Jean-Pierre',
-   'Reparasyon tout mak machin. Espesyalize nan Toyota ak Nissan.',
-   '+50937000009', '+50937000009',
-   'Port-au-Prince', 'HT', 'Fontamara',
-   true, ARRAY['ht','fr'], 4.8, 22),
+  -- Contact
+  phone            TEXT,
+  whatsapp         TEXT,
+  website          TEXT,
+  email            TEXT,
 
-  ('medical',     'Klinik Sante Espwa',
-   'Konsiltasyon jeneral, pediátri, ak swen prenatal. Ouvrèt lendi-samdi.',
-   '+50937000010', '+50937000010',
-   'Port-au-Prince', 'HT', 'Pétion-Ville',
-   true, ARRAY['ht','fr','en'], 4.6, 41),
+  -- Location
+  address          TEXT,
+  neighborhood     TEXT,
+  city             TEXT,
+  country          TEXT,
 
-  -- ── CAP-HAÏTIEN ─────────────────────────────────────────────
+  created_at       TIMESTAMPTZ DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('restaurant',  'Lakou Resto Cap',
-   'Pwason fre ak manje lokal. Prè plaj Cormier.',
-   '+50939000001', '+50939000001',
-   'Cap-Haïtien', 'HT', 'Centre-ville',
-   true, ARRAY['ht','fr'], 4.7, 15),
+CREATE INDEX IF NOT EXISTS idx_businesses_category ON businesses (category_id);
+CREATE INDEX IF NOT EXISTS idx_businesses_status   ON businesses (status);
+CREATE INDEX IF NOT EXISTS idx_businesses_city     ON businesses (city);
+CREATE INDEX IF NOT EXISTS idx_businesses_featured ON businesses (is_featured DESC, avg_rating DESC);
+CREATE INDEX IF NOT EXISTS idx_businesses_owner    ON businesses (owner_id);
 
-  ('driver',      'Taxi Nord Ekspres',
-   'Transpò Cap-Haïtien a Port-au-Prince. Vwayaj chak jou.',
-   '+50939000002', '+50939000002',
-   'Cap-Haïtien', 'HT', 'Vertières',
-   false, ARRAY['ht'], 4.1, 9),
+-- ============================================================
+-- CONVERSATIONS & MESSAGES
+-- ============================================================
 
-  ('contractor',  'Bâtisseur du Nord',
-   'Konstriksyon kay ak renovasyon. Ekip eksperyanse nan Nò.',
-   '+50939000003', '+50939000003',
-   'Cap-Haïtien', 'HT', 'Lizon',
-   false, ARRAY['ht','fr'], 4.3, 4),
+CREATE TABLE IF NOT EXISTS conversations (
+  id              UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id         UUID        NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  whatsapp_id     TEXT,
+  intent          TEXT        DEFAULT 'unknown',
+  context         JSONB       DEFAULT '{}',
+  is_active       BOOLEAN     DEFAULT true,
+  last_message_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
 
-  -- ── BOSTON DIASPORA ──────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_convos_user       ON conversations (user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_convos_last_msg   ON conversations (last_message_at DESC);
 
-  ('restaurant',  'Chez Claudette Boston',
-   'Authentic Haitian food in Mattapan. Griot, pikliz, diri ak pwa.',
-   '+16175550001', '+16175550001',
-   'Boston', 'US', 'Mattapan',
-   true, ARRAY['ht','en','fr'], 4.8, 67),
+-- ─────────────────────────────────────────────────────────────
 
-  ('tutor',       'Boston Haitian Tutors',
-   'Academic tutoring for K-12. Bilingual Kreyòl/English. Math, reading, science.',
-   '+16175550002', '+16175550002',
-   'Boston', 'US', 'Hyde Park',
-   true, ARRAY['ht','en'], 4.9, 18),
+CREATE TABLE IF NOT EXISTS messages (
+  id               UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  conversation_id  UUID        REFERENCES conversations (id) ON DELETE CASCADE,
+  user_id          UUID        REFERENCES users (id) ON DELETE SET NULL,
+  direction        TEXT        NOT NULL,   -- 'inbound' | 'outbound'
+  message_type     TEXT        DEFAULT 'text',
+  content          TEXT,
+  media_url        TEXT,
+  meta_message_id  TEXT        UNIQUE,     -- Twilio message SID, prevents duplicates
+  created_at       TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('contractor',  'Jobin Construction LLC',
-   'Residential construction and renovation. Licensed & insured in Massachusetts.',
-   '+16175550003', '+16175550003',
-   'Boston', 'US', 'Dorchester',
-   true, ARRAY['ht','en'], 4.5, 11),
+CREATE INDEX IF NOT EXISTS idx_messages_convo   ON messages (conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_user    ON messages (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_meta_id ON messages (meta_message_id);
+CREATE INDEX IF NOT EXISTS idx_messages_date    ON messages (created_at DESC);
 
-  -- ── MIAMI DIASPORA ───────────────────────────────────────────
+-- ============================================================
+-- BOOKINGS & INQUIRIES
+-- ============================================================
 
-  ('grocery',     'Little Haiti Market Miami',
-   'Haitian groceries, spices, and fresh produce. NW 2nd Ave.',
-   '+13055550001', '+13055550001',
-   'Miami', 'US', 'Little Haiti',
-   true, ARRAY['ht','en','fr'], 4.6, 29),
+CREATE TABLE IF NOT EXISTS bookings (
+  id             UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id        UUID        REFERENCES users (id) ON DELETE SET NULL,
+  business_id    UUID        REFERENCES businesses (id) ON DELETE SET NULL,
+  category_id    UUID        REFERENCES service_categories (id) ON DELETE SET NULL,
+  description    TEXT,
+  scheduled_at   TIMESTAMPTZ,
+  price_estimate NUMERIC (10,2),
+  notes          TEXT,
+  status         TEXT        DEFAULT 'pending',
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('restaurant',  'Tap Tap Restaurant Miami',
-   'Famous Haitian restaurant on Miami Beach. Art, culture, and great food.',
-   '+13055550002', '+13055550002',
-   'Miami', 'US', 'Little Haiti',
-   true, ARRAY['ht','en','fr'], 4.7, 112),
+CREATE INDEX IF NOT EXISTS idx_bookings_user     ON bookings (user_id);
+CREATE INDEX IF NOT EXISTS idx_bookings_business ON bookings (business_id);
 
-  ('driver',      'Miami Haitian Car Service',
-   'Airport transfers and local rides. Haitian-owned, dependable service.',
-   '+13055550003', '+13055550003',
-   'Miami', 'US', 'Little Haiti',
-   false, ARRAY['ht','en'], 4.4, 8),
+-- ─────────────────────────────────────────────────────────────
 
-  -- ── MONTREAL DIASPORA ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS inquiries (
+  id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id     UUID        REFERENCES users (id) ON DELETE SET NULL,
+  business_id UUID        REFERENCES businesses (id) ON DELETE CASCADE,
+  message     TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('restaurant',  'Resto Tropicana Montreal',
-   'Cuisine haïtienne authentique à Saint-Michel. Livraison disponible.',
-   '+15145550001', '+15145550001',
-   'Montreal', 'CA', 'Saint-Michel',
-   true, ARRAY['ht','fr'], 4.8, 44),
+CREATE INDEX IF NOT EXISTS idx_inquiries_business ON inquiries (business_id);
 
-  ('tutor',       'Cours Créole Montréal',
-   'Cours particuliers en français, math et sciences. Bilingue kreyòl/français.',
-   '+15145550002', '+15145550002',
-   'Montreal', 'CA', 'Montréal-Nord',
-   false, ARRAY['ht','fr'], 4.7, 6),
+-- ============================================================
+-- ANALYTICS: BUSINESS EVENTS
+-- Impression tracking for vendor stats.
+-- Call tracking not implemented — phone numbers are visible
+-- in results. Future: Twilio forwarding numbers for premium.
+-- ============================================================
 
-  -- ── NEW YORK DIASPORA ────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS business_events (
+  id              UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  business_id     UUID        NOT NULL REFERENCES businesses (id) ON DELETE CASCADE,
+  event_type      TEXT        NOT NULL CHECK (event_type IN ('impression','call','whatsapp','feedback')),
+  user_id         UUID        REFERENCES users (id) ON DELETE SET NULL,
+  search_query    TEXT,
+  category_slug   TEXT,
+  city            TEXT,
+  result_position INTEGER,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
 
-  ('restaurant',  'Flatbush Haitian Kitchen',
-   'Haitian home cooking in Brooklyn. Soup joumou every Sunday.',
-   '+17185550001', '+17185550001',
-   'New York', 'US', 'Flatbush',
-   true, ARRAY['ht','en'], 4.9, 88),
+CREATE INDEX IF NOT EXISTS idx_biz_events_business_date
+  ON business_events (business_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_biz_events_type_date
+  ON business_events (event_type, created_at DESC);
 
-  ('contractor',  'Brooklyn Haitian Builders',
-   'NYC-licensed contractors. Residential renovations, basements, roofing.',
-   '+17185550002', '+17185550002',
-   'New York', 'US', 'Crown Heights',
-   true, ARRAY['ht','en'], 4.5, 16)
+-- ============================================================
+-- COMMUNITY EVENTS CALENDAR
+-- Paid listings managed by Baz admin.
+-- Organizers submit via WhatsApp flyer intake → Dulex approves.
+-- ============================================================
 
-) AS b(
-  category_slug, name, description, phone, whatsapp,
-  city, country, neighborhood,
-  is_verified, languages, avg_rating, review_count
-)
-JOIN service_categories c ON c.slug = b.category_slug;
+CREATE TABLE IF NOT EXISTS events (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  title        TEXT        NOT NULL,
+  description  TEXT,
+
+  -- Location
+  city         TEXT        NOT NULL,
+  city_slug    TEXT        NOT NULL,  -- lowercase, no spaces: 'boston', 'miami'
+  venue        TEXT,
+
+  -- Timing
+  event_date   DATE        NOT NULL,
+  event_time   TEXT,                  -- e.g. "7:00 PM", "10PM–2AM"
+
+  -- Commercial
+  price        TEXT,                  -- e.g. "Free", "$25", "$35–50"
+  contact      TEXT,
+  organizer    TEXT,
+  listing_tier TEXT        DEFAULT 'basic',  -- 'basic' | 'featured' | 'extended' | 'premium'
+  is_featured  BOOLEAN     DEFAULT false,    -- paid upgrade — appears first
+
+  -- Media
+  flyer_url    TEXT,                  -- stored in Supabase Storage
+
+  -- Workflow
+  status       TEXT        DEFAULT 'pending',  -- 'pending' | 'active' | 'cancelled' | 'expired'
+  submitted_by TEXT,                           -- whatsapp_id of organizer
+
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  expires_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_city_date
+  ON events (city_slug, event_date);
+CREATE INDEX IF NOT EXISTS idx_events_status_date
+  ON events (status, event_date);
+CREATE INDEX IF NOT EXISTS idx_events_featured
+  ON events (is_featured DESC, event_date ASC);
+
+-- ============================================================
+-- VITRIN MARKETPLACE — Phase 2
+-- Deactivated. Tables retained for future activation.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS products (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  business_id  UUID        REFERENCES businesses (id) ON DELETE CASCADE,
+  name         TEXT        NOT NULL,
+  description  TEXT,
+  price        NUMERIC (10,2),
+  currency     TEXT        DEFAULT 'USD',
+  category_id  UUID        REFERENCES service_categories (id) ON DELETE SET NULL,
+  image_url    TEXT,
+  stock        INTEGER     DEFAULT 0,
+  status       TEXT        DEFAULT 'draft',   -- 'draft' | 'active' | 'sold_out'
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id      UUID        REFERENCES users (id) ON DELETE SET NULL,
+  business_id  UUID        REFERENCES businesses (id) ON DELETE SET NULL,
+  product_id   UUID        REFERENCES products (id) ON DELETE SET NULL,
+  quantity     INTEGER     DEFAULT 1,
+  total_amount NUMERIC (10,2),
+  currency     TEXT        DEFAULT 'USD',
+  status       TEXT        DEFAULT 'pending',
+  notes        TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- TWINZILE EVENT LOG — append only
+-- Gated by TWINZILE_ENABLED=true env var. Off by default.
+-- Separate project — do not enable in Baz.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS twinzile_logs (
+  id           UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  event_type   TEXT        NOT NULL,
+  user_id      UUID        REFERENCES users (id) ON DELETE SET NULL,
+  session_id   TEXT,
+  entity_type  TEXT,
+  entity_id    UUID,
+  payload      JSONB       DEFAULT '{}',
+  city         TEXT,
+  country      TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_twinzile_type ON twinzile_logs (event_type, created_at DESC);
+
+-- ============================================================
+-- POSTGRES FUNCTIONS
+-- ============================================================
+
+-- Increment business inquiry count (called by createInquiry in db.js)
+CREATE OR REPLACE FUNCTION increment_inquiry_count(business_id UUID)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  UPDATE businesses
+  SET inquiry_count = COALESCE(inquiry_count, 0) + 1
+  WHERE id = business_id;
+END;
+$$;
+
+-- Increment impression count (called by logBusinessEvent in db.js)
+CREATE OR REPLACE FUNCTION increment_impression_count(p_business_id UUID)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  UPDATE businesses
+  SET impression_count = COALESCE(impression_count, 0) + 1
+  WHERE id = p_business_id;
+END;
+$$;
+
+-- Auto-update businesses.updated_at
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS businesses_updated_at ON businesses;
+CREATE TRIGGER businesses_updated_at
+  BEFORE UPDATE ON businesses
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
