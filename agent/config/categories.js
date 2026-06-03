@@ -79,18 +79,6 @@ const categories = [
   },
 
   {
-    slug: 'events', type: 'service', modes: ['find'],
-    icon: '🎉', sort_order: 6, is_active: true,
-    name: { en: 'Events', ht: 'Evènman', fr: 'Événements' },
-    description: { en: 'Event planning, photography, DJ, and party services', ht: 'Planifikasyon evènman, foto, DJ, ak sèvis fèt', fr: 'Organisation événements, photographie, DJ et services fête' },
-    keywords: {
-      en: ['event', 'events', 'party', 'DJ', 'decoration', 'wedding', 'birthday', 'baptism', 'event planning', 'photographer', 'videographer'],
-      ht: ['evènman', 'fèt', 'anivèsè', 'maryaj', 'batèm', 'dekorasyon fèt', 'fotograf', 'DJ', 'planifikasyon'],
-      fr: ['événement', 'fête', 'anniversaire', 'mariage', 'baptême', 'décoration', 'photographe', 'DJ'],
-    },
-  },
-
-  {
     slug: 'tax_notary', type: 'service', modes: ['find'],
     icon: '🧾', sort_order: 6, is_active: true,
     name: { en: 'Tax & Notary', ht: 'Taks ak Notè', fr: 'Impôts & Notaire' },
