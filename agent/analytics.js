@@ -1,13 +1,14 @@
 /**
  * Analytics Dashboard
  * ───────────────────
- * Place in your repo (e.g. routes/analytics.js)
- * Mount in app.js:  app.use('/admin', require('./routes/analytics'))
+ * Place at: agent/routes/analytics.js
+ * Mount in agent/server.js: app.use('/admin', require('./routes/analytics'))
+ * Access at: https://baz-production.up.railway.app/admin/analytics?secret=YOUR_SECRET
  *
- * Required env vars (already in Railway):
- *   SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY  (or SUPABASE_KEY)
- *   ADMIN_SECRET               (protects the route — set anything you like)
+ * Required env vars — add in Railway dashboard:
+ *   SUPABASE_URL          (already set)
+ *   SUPABASE_SERVICE_KEY  (already set)
+ *   ADMIN_SECRET          (add this — set any strong password)
  */
 
 const express = require('express');
@@ -16,7 +17,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+  process.env.SUPABASE_SERVICE_KEY
 );
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || null;
@@ -46,10 +47,10 @@ router.get('/analytics/data', guard, async (req, res) => {
       allConversations,
       recentUsers,
     ] = await Promise.all([
-      supabase.from('users').select('id, created_at, language, last_seen_at'),
-      supabase.from('messages').select('id, created_at, direction, conversation_id, content').gte('created_at', d90ago),
-      supabase.from('conversations').select('id, created_at, user_id').gte('created_at', d90ago),
-      supabase.from('users').select('name, whatsapp_id, last_seen_at, language').order('last_seen_at', { ascending: false }).limit(12),
+      getSupabase().from('users').select('id, created_at, language, last_seen_at'),
+      getSupabase().from('messages').select('id, created_at, direction, conversation_id, content').gte('created_at', d90ago),
+      getSupabase().from('conversations').select('id, created_at, user_id').gte('created_at', d90ago),
+      getSupabase().from('users').select('name, whatsapp_id, last_seen_at, language').order('last_seen_at', { ascending: false }).limit(12),
     ]);
 
     const users   = allUsers.data        || [];
@@ -119,10 +120,17 @@ router.get('/analytics/data', guard, async (req, res) => {
     msgs.forEach(m => { m.direction === 'inbound' ? inbound++ : outbound++; });
 
     // ── Top inbound messages ──────────────────────────────────────────────────
+    // Filter out navigation/system words — they're not real searches
+    const NAV_WORDS = new Set([
+      '0', 'menu', 'tout', 'all', 'back', 'retounen', 'retour',
+      'plis', 'more', 'next', 'plus', 'options', 'categories',
+      'tout kategori', 'all categories', 'tout bagay',
+      'lang_ht', 'lang_en', 'lang_fr', 'sèvis', 'services',
+    ]);
     const contentMap = {};
     msgs.filter(m => m.direction === 'inbound').forEach(m => {
       const key = (m.content || '').trim().toLowerCase().slice(0, 80);
-      if (key.length > 1) contentMap[key] = (contentMap[key] || 0) + 1;
+      if (key.length > 1 && !NAV_WORDS.has(key)) contentMap[key] = (contentMap[key] || 0) + 1;
     });
     const topSearches = Object.entries(contentMap)
       .sort((a, b) => b[1] - a[1]).slice(0, 20)
@@ -204,7 +212,7 @@ function html(sp) { return `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard</title>
+<title>Baz Analytics</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
@@ -331,7 +339,7 @@ tr:last-child td{border-bottom:none}
 </head>
 <body>
 <header>
-  <div class="logo">tw<span>∞</span>nzile</div>
+  <div class="logo">B<span>az</span></div>
   <div class="clock">last updated <span id="ts">—</span></div>
   <button class="refresh" id="rbtn" onclick="load()">↻ refresh</button>
 </header>
