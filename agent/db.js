@@ -199,7 +199,6 @@ const CATEGORY_KEYWORDS = {
   tax_notary:    ['tax preparation', 'tax prep', 'notary', 'notè', 'tax service', 'multi services', 'business services'],
   real_estate:   ['realtor', 'real estate', 'imobilye', 'realty', 'property', 'real estate agent'],
   church:        ['church', 'legliz', 'congregation', 'haitian church', 'baptist', 'adventist', 'pentecostal', 'parish', 'ministry'],
-  events:        ['event planning', 'event design', 'decor', 'photography', 'videography', 'evènman', 'fèt'],
   services:      ['service', 'sèvis', 'multi-service', 'community service'],
 };
 
@@ -389,7 +388,7 @@ async function logEvent({ eventType, userId, sessionId, entityType, entityId, pa
   if (process.env.TWINZILE_ENABLED !== 'true') return;
 
   const { error } = await supabase
-    .from('events')
+    .from('twinzile_logs')
     .insert({
       event_type:  eventType,
       user_id:     userId      || null,
@@ -402,6 +401,35 @@ async function logEvent({ eventType, userId, sessionId, entityType, entityId, pa
     });
 
   if (error) console.error('Event log failed:', error.message);
+}
+
+
+// ── EVENT MANAGEMENT ─────────────────────────────────────────
+async function getPendingEvent(eventId) {
+  let query = supabase.from('events').select('*').eq('status', 'pending');
+  if (eventId) query = query.eq('id', eventId);
+  else         query = query.order('created_at', { ascending: false }).limit(1);
+  const { data } = await query.single();
+  return data || null;
+}
+
+async function updateEventStatus(eventId, status) {
+  const { data, error } = await supabase
+    .from('events')
+    .update({ status })
+    .eq('id', eventId)
+    .select('id, title, city, status, organizer, contact')
+    .single();
+  if (error) throw new Error(`Failed to update event: ${error.message}`);
+  return data;
+}
+
+async function getPendingEventsCount() {
+  const { count } = await supabase
+    .from('events')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending');
+  return count || 0;
 }
 
 module.exports = {
@@ -431,6 +459,10 @@ module.exports = {
   logBusinessEvent,
   // TwinZile events (gated)
   logEvent,
+  // Event management
+  getPendingEvent,
+  updateEventStatus,
+  getPendingEventsCount,
   // Supabase client — exposed for direct queries in find.js vendor stats
   supabase,
 };
