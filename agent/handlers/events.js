@@ -265,4 +265,47 @@ async function handleSubmit(req, res) {
   return res.json({ success: true, id: data.id, status: data.status });
 }
 
-module.exports = { handle, handleMore, handleSubmit };
+
+// ── EXTRACT EVENT FROM FLYER (Claude Vision proxy) ───────────
+// Called by events.html on bazht.com.
+// Keeps ANTHROPIC_API_KEY server-side — never exposed to browser.
+async function handleExtract(req, res) {
+  const { image, mediaType } = req.body || {};
+  if (!image || !mediaType) {
+    return res.status(400).json({ error: 'Missing image or mediaType' });
+  }
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type':    'application/json',
+        'x-api-key':       process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model:      'claude-sonnet-4-20250514',
+        max_tokens: 1024,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: image } },
+            { type: 'text',  text: 'Extract event details from this flyer. Return ONLY valid JSON, no markdown, no extra text:\n{"title":"","date":"","time":"","venue":"","city":"","price":"","contact":"","organizer":""}' },
+          ]
+        }]
+      }),
+    });
+
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    const raw       = data.content[0].text.replace(/```json\n?|\n?```/g, '').trim();
+    const extracted = JSON.parse(raw);
+    console.log(`[events/extract] Extracted: "${extracted.title}" in ${extracted.city}`);
+    return res.json(extracted);
+  } catch (err) {
+    console.error('[events/extract]', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+module.exports = { handle, handleMore, handleSubmit, handleExtract };
