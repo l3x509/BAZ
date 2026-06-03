@@ -400,8 +400,8 @@ async function route({ user, message, lang, conversationHistory }) {
     // Separate from the 'events' service category (event planners).
     // Routes to paid event listings managed by Baz admin.
     const EVENT_WORDS = new Set([
-      'evènman', 'fèt', 'aktivite', 'events', 'événements',
-      'ki pase', "what's on", 'whats on',
+      'evènman', 'fèt', 'aktivite', 'events', 'event', 'événements',
+      'ki pase', "what's on", 'whats on', 'eveman', 'evenman',
     ]);
     if (EVENT_WORDS.has(text) || [...EVENT_WORDS].some(w => text.startsWith(w + ' '))) {
       const evCity = extractCity(text) || user.location_city || null;
