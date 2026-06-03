@@ -1,31 +1,23 @@
 /**
  * Analytics Dashboard
  * ───────────────────
- * Place at: agent/routes/analytics.js
- * Mount in agent/server.js: app.use('/admin', require('./routes/analytics'))
- * Access at: https://baz-production.up.railway.app/admin/analytics?secret=YOUR_SECRET
+ * Place in your repo (e.g. routes/analytics.js)
+ * Mount in app.js:  app.use('/admin', require('./routes/analytics'))
  *
- * Required env vars — add in Railway dashboard:
- *   SUPABASE_URL          (already set)
- *   SUPABASE_SERVICE_KEY  (already set)
- *   ADMIN_SECRET          (add this — set any strong password)
+ * Required env vars (already in Railway):
+ *   SUPABASE_URL
+ *   SUPABASE_SERVICE_KEY  (or SUPABASE_KEY)
+ *   ADMIN_SECRET               (protects the route — set anything you like)
  */
 
 const express = require('express');
 const router  = express.Router();
 const { createClient } = require('@supabase/supabase-js');
 
-// Lazy init - created on first request, not at module load.
-// Prevents a missing env var from crashing the entire server on startup.
-let _supabase = null;
-function getSupabase() {
-  if (!_supabase) {
-    const key = process.env.SUPABASE_SERVICE_KEY;
-    if (!key) throw new Error('SUPABASE_SERVICE_KEY not set in Railway env vars');
-    _supabase = createClient(process.env.SUPABASE_URL, key);
-  }
-  return _supabase;
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || null;
 
@@ -54,10 +46,10 @@ router.get('/analytics/data', guard, async (req, res) => {
       allConversations,
       recentUsers,
     ] = await Promise.all([
-      getSupabase().from('users').select('id, created_at, language, last_seen_at'),
-      getSupabase().from('messages').select('id, created_at, direction, conversation_id, content').gte('created_at', d90ago),
-      getSupabase().from('conversations').select('id, created_at, user_id').gte('created_at', d90ago),
-      getSupabase().from('users').select('name, whatsapp_id, last_seen_at, language').order('last_seen_at', { ascending: false }).limit(12),
+      supabase.from('users').select('id, created_at, language, last_seen_at'),
+      supabase.from('messages').select('id, created_at, direction, conversation_id, content').gte('created_at', d90ago),
+      supabase.from('conversations').select('id, created_at, user_id').gte('created_at', d90ago),
+      supabase.from('users').select('name, whatsapp_id, last_seen_at, language').order('last_seen_at', { ascending: false }).limit(12),
     ]);
 
     const users   = allUsers.data        || [];
@@ -127,7 +119,6 @@ router.get('/analytics/data', guard, async (req, res) => {
     msgs.forEach(m => { m.direction === 'inbound' ? inbound++ : outbound++; });
 
     // ── Top inbound messages ──────────────────────────────────────────────────
-    // Filter out navigation/system words — they're not real searches
     const NAV_WORDS = new Set([
       '0', 'menu', 'tout', 'all', 'back', 'retounen', 'retour',
       'plis', 'more', 'next', 'plus', 'options', 'categories',
@@ -219,10 +210,10 @@ function html(sp) { return `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Baz Analytics</title>
+<title>Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   --bg:      #06070a;
@@ -243,15 +234,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Mono',monospace;font
 
 /* ── noise overlay ── */
 body::before{content:'';position:fixed;inset:0;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");opacity:.4;pointer-events:none;z-index:0}
-
-/* ── header ── */
-header{position:sticky;top:0;z-index:10;background:rgba(6,7,10,.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:16px;padding:0 28px;height:52px}
-.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:15px;letter-spacing:.06em;color:#fff}
-.logo span{color:var(--hi)}
-.clock{font-size:11px;color:var(--dim);margin-left:auto}
-#ts{color:var(--text)}
-.refresh{background:none;border:1px solid var(--border2);color:var(--dim);font-family:'DM Mono',monospace;font-size:11px;padding:5px 12px;cursor:pointer;transition:all .15s}
-.refresh:hover{border-color:var(--hi);color:var(--hi)}
 
 /* ── layout ── */
 main{position:relative;z-index:1;padding:24px 28px;max-width:1440px;display:flex;flex-direction:column;gap:20px}
@@ -345,11 +327,6 @@ tr:last-child td{border-bottom:none}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">B<span>az</span></div>
-  <div class="clock">last updated <span id="ts">—</span></div>
-  <button class="refresh" id="rbtn" onclick="load()">↻ refresh</button>
-</header>
 
 <main id="main">
   <div class="pulse"><div class="p"></div><div class="p"></div><div class="p"></div></div>
@@ -369,17 +346,14 @@ const DIM2 = '#2a2d38';
 function kill(id){ if(C[id]){C[id].destroy();delete C[id];} }
 
 async function load(){
-  document.getElementById('rbtn').textContent = '↻ loading…';
   try {
     const r = await fetch('/admin/analytics/data${sp}');
     const d = await r.json();
     if(d.error) throw new Error(d.error);
     render(d);
-    document.getElementById('ts').textContent = new Date().toLocaleTimeString();
   } catch(e){
-    document.getElementById('ts').textContent = 'error: '+e.message;
+    console.error('[analytics] load error:', e.message);
   }
-  document.getElementById('rbtn').textContent = '↻ refresh';
 }
 
 function render(d){
