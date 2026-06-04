@@ -165,42 +165,48 @@ async function getConversationHistory(conversationId, limit = 10) {
 
 // ── CITY ALIASES ─────────────────────────────────────────────
 const CITY_ALIASES = {
-  'pap':          'Port-au-Prince',
+  'pap':            'Port-au-Prince',
   'port au prince': 'Port-au-Prince',
-  'pòtoprens':    'Port-au-Prince',
-  'potoprens':    'Port-au-Prince',
-  'cap':          'Cap-Haïtien',
-  'cap haitien':  'Cap-Haïtien',
-  'petit goave':  'Petit-Goâve',
-  'gonaives':     'Gonaïves',
+  'pòtoprens':      'Port-au-Prince',
+  'potoprens':      'Port-au-Prince',
+  'cap':            'Cap-Haïtien',
+  'cap haitien':    'Cap-Haïtien',
+  'petit goave':    'Petit-Goâve',
+  'gonaives':       'Gonaïves',
 };
 
-// ── CATEGORY KEYWORDS ────────────────────────────────────────
-// Strategy 3 fallback: catches businesses with NULL category_id.
-// Compound/specific terms to avoid false positives on generic words.
-const CATEGORY_KEYWORDS = {
-  restaurant:    ['restaurant', 'cuisine haïtienne', 'grill', 'bistro', 'lounge', 'traiteur', 'food court'],
-  hair_beauty:   ['hair salon', 'nail salon', 'beauty salon', 'braiding salon', 'barbershop', 'coiffure', 'trese cheve', 'natural hair', 'locs', 'weave'],
-  grocery:       ['grocery store', 'supermarket', 'provisions', 'épicerie', 'komisyon'],
-  medical:       ['medical center', 'health clinic', 'pharmacy', 'doktè', 'sante'],
-  contractor:    ['construction', 'contractor', 'renovation', 'builder', 'remodeling'],
-  driver:        ['car service', 'taxi service', 'school bus', 'chauffeur', 'transpò'],
-  cook:          ['catering', 'private chef', 'bakery', 'pastry shop', 'traiteur', 'boulangerie'],
-  tutor:         ['tutoring', 'learning center', 'after school', 'training center', 'lekòl', 'dual language'],
-  mechanic:      ['auto repair', 'auto mechanic', 'car repair', 'garage'],
-  cleaner:       ['cleaning service', 'maid service', 'janitorial', 'housekeeping', 'nettoyage'],
-  fashion:       ['fashion boutique', 'clothing store', 'boutique', 'apparel'],
-  plumber:       ['plumbing', 'plombier', 'pipe repair', 'tiyo'],
-  electrician:   ['electrician', 'electrical contractor', 'elektrisyen'],
-  // New categories
-  legal:         ['immigration lawyer', 'immigration attorney', 'legal aid', 'immigration services', 'law office', 'legal advocacy', 'avoka', 'immigration counseling'],
-  childcare:     ['childcare', 'daycare', 'day care', 'preschool', 'early education', 'gadri', 'child care center', 'learning academy'],
-  shipping:      ['cargo', 'shipping', 'freight', 'kago', 'freight forwarding', 'haiti cargo'],
-  tax_notary:    ['tax preparation', 'tax prep', 'notary', 'notè', 'tax service', 'multi services', 'business services'],
-  real_estate:   ['realtor', 'real estate', 'imobilye', 'realty', 'property', 'real estate agent'],
-  church:        ['church', 'legliz', 'congregation', 'haitian church', 'baptist', 'adventist', 'pentecostal', 'parish', 'ministry'],
-  services:      ['service', 'sèvis', 'multi-service', 'community service'],
-};
+// ── CATEGORY RESOLUTION ──────────────────────────────────────
+// Resolves any word (EN/HT/FR) to a category row via the
+// keywords JSONB column in service_categories.
+// This is the single lookup path — no hardcoded slug maps.
+async function resolveCategory(word) {
+  if (!word) return null;
+  const term = word.toLowerCase().trim();
+
+  // First try exact slug match (fast path for internal calls)
+  const { data: bySlug } = await supabase
+    .from('service_categories')
+    .select('id, slug, name_en, name_ht, name_fr, icon')
+    .eq('slug', term)
+    .eq('is_active', true)
+    .single();
+  if (bySlug) return bySlug;
+
+  // Then search keywords JSONB across all three languages
+  const { data: byKeyword } = await supabase
+    .from('service_categories')
+    .select('id, slug, name_en, name_ht, name_fr, icon')
+    .or(
+      `keywords->en.cs.["${term}"],` +
+      `keywords->ht.cs.["${term}"],` +
+      `keywords->fr.cs.["${term}"]`
+    )
+    .eq('is_active', true)
+    .limit(1)
+    .single();
+
+  return byKeyword || null;
+}
 
 function buildBase() {
   return supabase
@@ -217,22 +223,22 @@ function applyLocation(q, { city, country }) {
   return q;
 }
 
+// ── searchBusinesses ─────────────────────────────────────────
+// query       : raw word/phrase the user typed (any language)
+// categorySlug: optional — passed by router for direct category hits
+// city        : explicit city from message
+// userCity    : saved city from user profile (fallback)
+// Resolves category via keywords — no hardcoded mapping needed.
 async function searchBusinesses({ query, categorySlug, city, country, limit = 5, offset = 0, userCity = null, userCountry = null }) {
   if (city)     city     = CITY_ALIASES[city.toLowerCase()]     || city;
   if (userCity) userCity = CITY_ALIASES[userCity.toLowerCase()] || userCity;
 
-  // Resolve category_id once — reused across all strategies
-  let categoryId = null;
-  if (categorySlug) {
-    const { data: cat } = await supabase
-      .from('service_categories')
-      .select('id, name_en')
-      .eq('slug', categorySlug)
-      .single();
-    if (cat) categoryId = cat.id;
-  }
+  // Resolve category — try slug first, then query word
+  const term = categorySlug || query || '';
+  const cat  = await resolveCategory(term);
+  const categoryId = cat?.id || null;
 
-  // ── Strategy 1: category_id exact match ──────────────────
+  // ── Strategy 1: category match with explicit city ─────────
   if (categoryId) {
     const { data } = await applyLocation(
       buildBase().eq('category_id', categoryId).range(offset, offset + limit - 1),
@@ -240,6 +246,7 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5,
     );
     if (data?.length) return data;
 
+    // Strategy 1b: fall back to user's saved city
     if (!city && userCity) {
       const { data: data2 } = await applyLocation(
         buildBase().eq('category_id', categoryId).range(offset, offset + limit - 1),
@@ -248,6 +255,7 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5,
       if (data2?.length) return data2;
     }
 
+    // Strategy 1c: no city filter — return any matching category
     if (city || userCity) {
       const { data: data3 } = await buildBase()
         .eq('category_id', categoryId)
@@ -256,29 +264,15 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5,
     }
   }
 
-  // ── Strategy 2: text search — scoped to category ─────────
+  // ── Strategy 2: name/description text search ─────────────
   if (query) {
-    let base = buildBase().or(`name.ilike.%${query}%,description.ilike.%${query}%`);
-    if (categoryId) base = base.eq('category_id', categoryId);
+    let q = buildBase().or(`name.ilike.%${query}%,description.ilike.%${query}%`);
+    if (categoryId) q = q.eq('category_id', categoryId);
     const { data } = await applyLocation(
-      base.range(offset, offset + limit - 1),
+      q.range(offset, offset + limit - 1),
       { city, country }
     );
     if (data?.length) return data;
-  }
-
-  // ── Strategy 3: keyword fallback for NULL category_id ─────
-  if (categorySlug) {
-    const keywords = CATEGORY_KEYWORDS[categorySlug] || [categorySlug];
-    for (const kw of keywords) {
-      const { data } = await applyLocation(
-        buildBase()
-          .or(`name.ilike.%${kw}%,description.ilike.%${kw}%`)
-          .range(offset, offset + limit - 1),
-        { city, country }
-      );
-      if (data?.length) return data;
-    }
   }
 
   return [];
@@ -344,10 +338,6 @@ async function createInquiry({ userId, businessId, message }) {
 
 // ============================================================
 // BUSINESS ANALYTICS
-// Logs search impressions to business_events table.
-// Call tracking not implemented — phone numbers are visible in
-// the results card so we have no visibility into actual calls.
-// Future: Twilio forwarding numbers for premium vendors.
 // ============================================================
 
 async function logBusinessEvent({ businessId, eventType, userId, searchQuery, categorySlug, city, resultPosition }) {
@@ -370,7 +360,6 @@ async function logBusinessEvent({ businessId, eventType, userId, searchQuery, ca
     return;
   }
 
-  // Only impressions have a counter — the only event we reliably track
   if (eventType === 'impression') {
     await supabase
       .rpc('increment_impression_count', { p_business_id: businessId })
@@ -379,9 +368,7 @@ async function logBusinessEvent({ businessId, eventType, userId, searchQuery, ca
 }
 
 // ============================================================
-// EVENTS (TWINZILE FEED — append only)
-// Enable by setting TWINZILE_ENABLED=true in Railway env vars.
-// Off by default — separate project, do not enable in Baz.
+// TWINZILE EVENTS (gated — never enable in Baz)
 // ============================================================
 
 async function logEvent({ eventType, userId, sessionId, entityType, entityId, payload, city, country }) {
@@ -403,8 +390,10 @@ async function logEvent({ eventType, userId, sessionId, entityType, entityId, pa
   if (error) console.error('Event log failed:', error.message);
 }
 
+// ============================================================
+// EVENT MANAGEMENT
+// ============================================================
 
-// ── EVENT MANAGEMENT ─────────────────────────────────────────
 async function getPendingEvent(eventId) {
   let query = supabase.from('events').select('*').eq('status', 'pending');
   if (eventId) query = query.eq('id', eventId);
@@ -449,6 +438,7 @@ module.exports = {
   logMessage,
   isDuplicate,
   // Businesses
+  resolveCategory,
   searchBusinesses,
   getBusinessById,
   getCategories,
