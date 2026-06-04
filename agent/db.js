@@ -1,4 +1,7 @@
+'use strict';
+
 const { createClient } = require('@supabase/supabase-js');
+const { normalize }    = require('./utils/normalize');
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -6,10 +9,123 @@ const supabase = createClient(
 );
 
 // ============================================================
+// CATEGORY CACHE
+// Loaded once on startup — eliminates all resolveCategory DB calls.
+// Structure:
+//   _bySlug:    Map<slug, categoryRow>
+//   _byKeyword: Map<normalizedKeyword, categoryRow>
+//
+// Rebuilt by calling loadCategoryCache() — called automatically
+// on first use and can be called again if categories change.
+// In practice, Railway restarts on every deploy so it's always fresh.
+// ============================================================
+let _bySlug    = new Map();
+let _byKeyword = new Map();
+let _cacheLoaded = false;
+
+async function loadCategoryCache() {
+  try {
+    const { data, error } = await supabase
+      .from('service_categories')
+      .select('*')
+      .eq('is_active', true);
+
+    if (error) throw error;
+
+    _bySlug    = new Map();
+    _byKeyword = new Map();
+
+    for (const cat of (data || [])) {
+      _bySlug.set(cat.slug, cat);
+
+      // Index every keyword (all languages) normalized
+      const kws = cat.keywords || {};
+      for (const lang of ['en', 'ht', 'fr']) {
+        for (const kw of (kws[lang] || [])) {
+          _byKeyword.set(normalize(kw), cat);
+        }
+      }
+      // Also index the slug itself and name_en
+      _byKeyword.set(normalize(cat.slug),    cat);
+      _byKeyword.set(normalize(cat.name_en), cat);
+    }
+
+    _cacheLoaded = true;
+    console.log(`[db] Category cache loaded: ${_bySlug.size} categories, ${_byKeyword.size} keywords`);
+  } catch (err) {
+    console.error('[db] loadCategoryCache failed:', err.message);
+    // Non-fatal — resolveCategory falls back to DB query
+  }
+}
+
+// Load on startup (non-blocking)
+loadCategoryCache();
+
+// ── resolveCategory ───────────────────────────────────────────
+// Resolves any word (EN/HT/FR, with or without diacritics)
+// to a category row. Pure in-memory after cache load.
+// Falls back to DB query if cache isn't ready.
+async function resolveCategory(word) {
+  if (!word) return null;
+  const term = normalize(word);
+
+  // ── Fast path: in-memory cache ──────────────────────────────
+  if (_cacheLoaded) {
+    return _bySlug.get(term) || _byKeyword.get(term) || null;
+  }
+
+  // ── Fallback: DB query (only during cold start) ─────────────
+  console.warn('[db] resolveCategory: cache not ready, falling back to DB');
+  const { data: bySlug } = await supabase
+    .from('service_categories')
+    .select('*')
+    .eq('slug', term)
+    .eq('is_active', true)
+    .single();
+  if (bySlug) return bySlug;
+
+  const { data: byKeyword } = await supabase
+    .from('service_categories')
+    .select('*')
+    .or(
+      `keywords->en.cs.["${term}"],` +
+      `keywords->ht.cs.["${term}"],` +
+      `keywords->fr.cs.["${term}"]`
+    )
+    .eq('is_active', true)
+    .limit(1)
+    .single();
+
+  return byKeyword || null;
+}
+
+// ============================================================
 // USERS
 // ============================================================
 
+// ── In-memory user cache ─────────────────────────────────────
+// 60s TTL. Eliminates getOrCreateUser DB call on repeat messages.
+// Invalidated on any updateUser call.
+const _userCache    = new Map();
+const USER_CACHE_TTL = 60 * 1000;
+
+function _cacheUser(user) {
+  _userCache.set(user.whatsapp_id, { user, ts: Date.now() });
+}
+function _getCachedUser(waId) {
+  const entry = _userCache.get(waId);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > USER_CACHE_TTL) { _userCache.delete(waId); return null; }
+  return entry.user;
+}
+function _invalidateUser(waId) {
+  _userCache.delete(waId);
+}
+
 async function getOrCreateUser(waId, displayName = '') {
+  const cached = _getCachedUser(waId);
+  if (cached) return cached;
+
   const { data: existing } = await supabase
     .from('users')
     .select('*')
@@ -17,44 +133,49 @@ async function getOrCreateUser(waId, displayName = '') {
     .single();
 
   if (existing) {
-    await supabase
-      .from('users')
+    // Fire-and-forget last_seen update — don't block on it
+    supabase.from('users')
       .update({ last_seen_at: new Date().toISOString() })
-      .eq('id', existing.id);
+      .eq('id', existing.id)
+      .then(() => {}).catch(() => {});
+    _cacheUser(existing);
     return existing;
   }
 
   const { data: newUser, error } = await supabase
     .from('users')
     .insert({
-      whatsapp_id: waId,
-      name:        displayName || null,
+      whatsapp_id:  waId,
+      name:         displayName || null,
       last_seen_at: new Date().toISOString(),
     })
     .select()
     .single();
 
   if (error) throw new Error(`Failed to create user: ${error.message}`);
+  _cacheUser(newUser);
   return newUser;
 }
 
 async function updateUser(userId, updates) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('users')
     .update(updates)
-    .eq('id', userId);
+    .eq('id', userId)
+    .select()
+    .single();
   if (error) throw new Error(`Failed to update user: ${error.message}`);
+  // Invalidate cache so next fetch gets fresh data
+  if (data?.whatsapp_id) _invalidateUser(data.whatsapp_id);
+  return data;
 }
 
 async function setUserLanguage(userId, language) {
   return updateUser(userId, { language });
 }
-
 async function setUserSessionState(userId, state) {
   return updateUser(userId, { session_state: state });
 }
-
-// Alias used by router.js
 async function updateSessionState(userId, state) {
   return setUserSessionState(userId, state);
 }
@@ -62,6 +183,20 @@ async function updateSessionState(userId, state) {
 // ============================================================
 // CONVERSATIONS
 // ============================================================
+
+// Returns active conversation by waId directly — no userId needed.
+// Enables parallel fetch with getOrCreateUser in processMessage.
+async function getConversationByWaId(waId) {
+  const { data } = await supabase
+    .from('conversations')
+    .select('*')
+    .eq('whatsapp_id', waId)
+    .eq('is_active', true)
+    .order('last_message_at', { ascending: false })
+    .limit(1)
+    .single();
+  return data || null;
+}
 
 async function getActiveConversation(userId) {
   const { data } = await supabase
@@ -106,19 +241,18 @@ async function closeConversation(conversationId) {
 // MESSAGES
 // ============================================================
 
-async function logMessage({ conversationId, userId, direction, messageType, content, mediaUrl, metaMessageId }) {
-  const { error } = await supabase
-    .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      user_id:         userId,
-      direction,
-      message_type:    messageType,
-      content,
-      media_url:       mediaUrl      || null,
-      meta_message_id: metaMessageId || null,
-    });
-  if (error) console.error('Failed to log message:', error.message);
+// Fire-and-forget — never awaited. User response is not blocked
+// on message logging. Errors are swallowed intentionally.
+function logMessage({ conversationId, userId, direction, messageType, content, mediaUrl, metaMessageId }) {
+  supabase.from('messages').insert({
+    conversation_id: conversationId,
+    user_id:         userId,
+    direction,
+    message_type:    messageType,
+    content,
+    media_url:       mediaUrl      || null,
+    meta_message_id: metaMessageId || null,
+  }).then(() => {}).catch(err => console.error('[db] logMessage failed:', err.message));
 }
 
 async function isDuplicate(metaMessageId) {
@@ -131,15 +265,10 @@ async function isDuplicate(metaMessageId) {
   return !!data;
 }
 
-// ============================================================
-// CONVERSATION HISTORY
-// Returns the last N messages formatted for Claude:
-//   [{ role: 'user'|'assistant', content: string }]
-// ============================================================
-
+// Lazy — only called when Claude will actually be invoked.
+// Don't call this for keyword/emoji/name hits.
 async function getConversationHistory(conversationId, limit = 10) {
   if (!conversationId) return [];
-
   const { data, error } = await supabase
     .from('messages')
     .select('direction, content')
@@ -147,27 +276,20 @@ async function getConversationHistory(conversationId, limit = 10) {
     .not('content', 'is', null)
     .order('created_at', { ascending: false })
     .limit(limit);
-
   if (error || !data?.length) return [];
-
   return data
     .reverse()
-    .map(m => ({
-      role:    m.direction === 'inbound' ? 'user' : 'assistant',
-      content: m.content.trim(),
-    }))
+    .map(m => ({ role: m.direction === 'inbound' ? 'user' : 'assistant', content: m.content.trim() }))
     .filter(m => m.content);
 }
 
 // ============================================================
-// BUSINESSES (BAZ DIRECTORY)
+// BUSINESSES
 // ============================================================
 
-// ── CITY ALIASES ─────────────────────────────────────────────
 const CITY_ALIASES = {
   'pap':            'Port-au-Prince',
   'port au prince': 'Port-au-Prince',
-  'pòtoprens':      'Port-au-Prince',
   'potoprens':      'Port-au-Prince',
   'cap':            'Cap-Haïtien',
   'cap haitien':    'Cap-Haïtien',
@@ -175,129 +297,78 @@ const CITY_ALIASES = {
   'gonaives':       'Gonaïves',
 };
 
-// ── CATEGORY RESOLUTION ──────────────────────────────────────
-// Resolves any word (EN/HT/FR) to a category row via the
-// keywords JSONB column in service_categories.
-// This is the single lookup path — no hardcoded slug maps.
-async function resolveCategory(word) {
-  if (!word) return null;
-  const term = word.toLowerCase().trim();
-
-  // First try exact slug match (fast path for internal calls)
-  const { data: bySlug } = await supabase
-    .from('service_categories')
-    .select('id, slug, name_en, name_ht, name_fr, icon')
-    .eq('slug', term)
-    .eq('is_active', true)
-    .single();
-  if (bySlug) return bySlug;
-
-  // Then search keywords JSONB across all three languages
-  const { data: byKeyword } = await supabase
-    .from('service_categories')
-    .select('id, slug, name_en, name_ht, name_fr, icon')
-    .or(
-      `keywords->en.cs.["${term}"],` +
-      `keywords->ht.cs.["${term}"],` +
-      `keywords->fr.cs.["${term}"]`
-    )
-    .eq('is_active', true)
-    .limit(1)
-    .single();
-
-  return byKeyword || null;
-}
-
-function buildBase() {
-  return supabase
-    .from('businesses')
-    .select('*, service_categories (slug, name_en, name_ht, name_fr, icon)')
-    .eq('status', 'active')
-    .order('is_featured', { ascending: false })
-    .order('avg_rating',  { ascending: false });
-}
-
-function applyLocation(q, { city, country }) {
-  if (city)    q = q.ilike('city', `%${city}%`);
-  if (country) q = q.eq('country', country);
-  return q;
-}
-
 // ── searchBusinesses ─────────────────────────────────────────
-// query       : raw word/phrase the user typed (any language)
-// categorySlug: optional — passed by router for direct category hits
-// city        : explicit city from message
-// userCity    : saved city from user profile (fallback)
-// Resolves category via keywords — no hardcoded mapping needed.
-async function searchBusinesses({ query, categorySlug, city, country, limit = 5, offset = 0, userCity = null, userCountry = null }) {
-  if (city)     city     = CITY_ALIASES[city.toLowerCase()]     || city;
-  if (userCity) userCity = CITY_ALIASES[userCity.toLowerCase()] || userCity;
+// Single RPC call to Postgres — replaces the old 3-strategy
+// sequential query chain. Unaccent handled server-side.
+// Falls back to JS-side ilike if RPC unavailable.
+async function searchBusinesses({
+  query, categorySlug, city, country,
+  limit = 5, offset = 0,
+  userCity = null, userCountry = null,
+}) {
+  // Normalize all inputs
+  const normQuery = query ? normalize(query) : null;
+  let   resolvedCity    = city     ? (CITY_ALIASES[normalize(city)]     || city)     : null;
+  const resolvedUserCity = userCity ? (CITY_ALIASES[normalize(userCity)] || userCity) : null;
 
-  // Resolve category — try slug first, then query word
-  const term = categorySlug || query || '';
-  const cat  = await resolveCategory(term);
+  // Resolve category UUID from cache (free)
+  const cat        = categorySlug ? await resolveCategory(categorySlug) : null;
   const categoryId = cat?.id || null;
 
-  // ── Strategy 1: category match with explicit city ─────────
-  if (categoryId) {
-    const { data } = await applyLocation(
-      buildBase().eq('category_id', categoryId).range(offset, offset + limit - 1),
-      { city, country }
-    );
-    if (data?.length) return data;
+  // Determine effective search term:
+  // If we have a category, the term is used only for text search fallback.
+  // If no category, the term IS the search.
+  const searchTerm = normQuery || (categorySlug ? normalize(categorySlug) : null);
 
-    // Strategy 1b: fall back to user's saved city
-    if (!city && userCity) {
-      const { data: data2 } = await applyLocation(
-        buildBase().eq('category_id', categoryId).range(offset, offset + limit - 1),
-        { city: userCity, country: userCountry }
-      );
-      if (data2?.length) return data2;
+  // ── RPC call: one round-trip, unaccent both sides ──────────
+  async function rpcSearch(cityOverride) {
+    const { data, error } = await supabase.rpc('search_businesses', {
+      p_term:    categoryId ? null : searchTerm,  // don't text-search when we have a category UUID
+      p_cat_id:  categoryId || null,
+      p_city:    cityOverride || null,
+      p_country: country || null,
+      p_limit:   limit,
+      p_offset:  offset,
+    });
+    if (error) {
+      console.warn('[db] search_businesses RPC error:', error.message);
+      return [];
     }
-
-    // Strategy 1c: no city filter — return any matching category
-    if (city || userCity) {
-      const { data: data3 } = await buildBase()
-        .eq('category_id', categoryId)
-        .range(offset, offset + limit - 1);
-      if (data3?.length) return data3;
-    }
+    return data || [];
   }
 
-  // ── Strategy 2: name/description text search ─────────────
-  if (query) {
-    let q = buildBase().or(`name.ilike.%${query}%,description.ilike.%${query}%`);
-    if (categoryId) q = q.eq('category_id', categoryId);
-    const { data } = await applyLocation(
-      q.range(offset, offset + limit - 1),
-      { city, country }
-    );
-    if (data?.length) return data;
+  // Strategy 1: category + explicit city
+  let results = await rpcSearch(resolvedCity);
+  if (results.length) return results;
+
+  // Strategy 2: category + user's saved city (if different)
+  if (!resolvedCity && resolvedUserCity) {
+    results = await rpcSearch(resolvedUserCity);
+    if (results.length) return results;
+  }
+
+  // Strategy 3: category, no city filter (show national results)
+  if (resolvedCity || resolvedUserCity) {
+    results = await rpcSearch(null);
+    if (results.length) return results;
   }
 
   return [];
 }
 
-
-// ── BUSINESS NAME LOOKUP ─────────────────────────────────────
-// Finds businesses by name match (case-insensitive, partial ok).
-// Used by router for direct name queries like "PiBonAn".
-// Returns up to 5 matches. Zero matches returns [].
+// ── findBusinessByName ────────────────────────────────────────
+// Called from router when user types a business name directly.
+// Uses find_business_by_name RPC — unaccent both sides.
 async function findBusinessByName(input) {
-  if (!input || input.trim().length < 3) return [];
-  const term = input.trim();
+  if (!input || normalize(input).length < 3) return [];
 
-  const { data, error } = await supabase
-    .from('businesses')
-    .select('*, service_categories (slug, name_en, name_ht, name_fr, icon)')
-    .eq('status', 'active')
-    .ilike('name', `%${term}%`)
-    .order('is_featured', { ascending: false })
-    .order('avg_rating',   { ascending: false })
-    .limit(5);
+  const { data, error } = await supabase.rpc('find_business_by_name', {
+    p_term:  normalize(input),
+    p_limit: 5,
+  });
 
   if (error) {
-    console.warn('[db] findBusinessByName error:', error.message);
+    console.warn('[db] find_business_by_name RPC error:', error.message);
     return [];
   }
   return data || [];
@@ -314,6 +385,10 @@ async function getBusinessById(id) {
 }
 
 async function getCategories() {
+  // Serve from cache if available
+  if (_cacheLoaded && _bySlug.size > 0) {
+    return [..._bySlug.values()].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+  }
   const { data } = await supabase
     .from('service_categories')
     .select('*')
@@ -355,9 +430,7 @@ async function createInquiry({ userId, businessId, message }) {
     .select()
     .single();
   if (error) throw new Error(`Failed to create inquiry: ${error.message}`);
-
-  await supabase.rpc('increment_inquiry_count', { business_id: businessId }).catch(() => {});
-
+  supabase.rpc('increment_inquiry_count', { business_id: businessId }).catch(() => {});
   return data;
 }
 
@@ -365,54 +438,40 @@ async function createInquiry({ userId, businessId, message }) {
 // BUSINESS ANALYTICS
 // ============================================================
 
-async function logBusinessEvent({ businessId, eventType, userId, searchQuery, categorySlug, city, resultPosition }) {
+function logBusinessEvent({ businessId, eventType, userId, searchQuery, categorySlug, city, resultPosition }) {
   if (!businessId || !eventType) return;
-
-  const { error } = await supabase
-    .from('business_events')
-    .insert({
-      business_id:     businessId,
-      event_type:      eventType,
-      user_id:         userId         || null,
-      search_query:    searchQuery    || null,
-      category_slug:   categorySlug   || null,
-      city:            city           || null,
-      result_position: resultPosition || null,
-    });
-
-  if (error) {
-    console.warn('[db] logBusinessEvent failed:', error.message);
-    return;
-  }
-
-  if (eventType === 'impression') {
-    await supabase
-      .rpc('increment_impression_count', { p_business_id: businessId })
-      .catch(err => console.warn('[db] increment_impression_count failed:', err.message));
-  }
+  supabase.from('business_events').insert({
+    business_id:     businessId,
+    event_type:      eventType,
+    user_id:         userId         || null,
+    search_query:    searchQuery    || null,
+    category_slug:   categorySlug   || null,
+    city:            city           || null,
+    result_position: resultPosition || null,
+  }).then(({ error }) => {
+    if (error) { console.warn('[db] logBusinessEvent failed:', error.message); return; }
+    if (eventType === 'impression') {
+      supabase.rpc('increment_impression_count', { p_business_id: businessId }).catch(() => {});
+    }
+  }).catch(() => {});
 }
 
 // ============================================================
 // TWINZILE EVENTS (gated — never enable in Baz)
 // ============================================================
 
-async function logEvent({ eventType, userId, sessionId, entityType, entityId, payload, city, country }) {
+function logEvent({ eventType, userId, sessionId, entityType, entityId, payload, city, country }) {
   if (process.env.TWINZILE_ENABLED !== 'true') return;
-
-  const { error } = await supabase
-    .from('twinzile_logs')
-    .insert({
-      event_type:  eventType,
-      user_id:     userId      || null,
-      session_id:  sessionId   || null,
-      entity_type: entityType  || null,
-      entity_id:   entityId    || null,
-      payload:     payload     || {},
-      city:        city        || null,
-      country:     country     || null,
-    });
-
-  if (error) console.error('Event log failed:', error.message);
+  supabase.from('twinzile_logs').insert({
+    event_type:  eventType,
+    user_id:     userId      || null,
+    session_id:  sessionId   || null,
+    entity_type: entityType  || null,
+    entity_id:   entityId    || null,
+    payload:     payload     || {},
+    city:        city        || null,
+    country:     country     || null,
+  }).catch(err => console.error('[db] logEvent failed:', err.message));
 }
 
 // ============================================================
@@ -447,6 +506,8 @@ async function getPendingEventsCount() {
 }
 
 module.exports = {
+  // Cache management
+  loadCategoryCache,
   // Users
   getOrCreateUser,
   updateUser,
@@ -454,6 +515,7 @@ module.exports = {
   setUserSessionState,
   updateSessionState,
   // Conversations
+  getConversationByWaId,
   getActiveConversation,
   createConversation,
   updateConversation,
@@ -471,14 +533,13 @@ module.exports = {
   // Bookings & Inquiries
   createBooking,
   createInquiry,
-  // Business analytics
+  // Analytics (fire-and-forget)
   logBusinessEvent,
-  // TwinZile events (gated)
   logEvent,
   // Event management
   getPendingEvent,
   updateEventStatus,
   getPendingEventsCount,
-  // Supabase client — exposed for direct queries in find.js vendor stats
+  // Supabase client
   supabase,
 };
