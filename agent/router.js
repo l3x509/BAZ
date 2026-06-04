@@ -73,7 +73,7 @@ const KEYWORD_MAP = {
   // French
   'cheveux': 'hair_beauty', 'coiffure': 'hair_beauty',
   'manger': 'restaurant',   'nourriture': 'restaurant',
-  'avocat': 'legal',        'immigration': 'legal',
+  'avocat': 'legal',
   'garderie': 'childcare',
   'expédition': 'shipping',
   'impôts': 'tax_notary',   'notaire': 'tax_notary',
@@ -84,7 +84,6 @@ const KEYWORD_MAP = {
 
 // ════════════════════════════════════════════════════════════
 // EMOJI MAP
-// Single-emoji messages resolved locally — zero API calls.
 // ════════════════════════════════════════════════════════════
 const EMOJI_MAP = {
   '💇': 'hair_beauty', '💇‍♀️': 'hair_beauty', '💅': 'hair_beauty',
@@ -107,29 +106,44 @@ const EMOJI_MAP = {
 
 // ════════════════════════════════════════════════════════════
 // CITY EXTRACTOR
-// Pulls city from message text locally — no API needed.
-// Handles "cheve Boston", "Boston cheve", "avoka Brockton"
+// Expanded to cover all cities present in the DB + likely user cities.
 // ════════════════════════════════════════════════════════════
 const KNOWN_CITIES = [
+  // Greater Boston / South Shore
   'boston', 'brockton', 'mattapan', 'dorchester', 'randolph',
   'somerville', 'everett', 'malden', 'cambridge', 'stoughton',
   'hyde park', 'roxbury', 'quincy', 'lynn', 'lowell',
-  'miami', 'new york', 'brooklyn', 'bronx', 'queens',
-  'montreal', 'port-au-prince', 'pap', 'cap-haïtien',
+  'holbrook', 'west bridgewater', 'east bridgewater', 'bridgewater',
+  'canton', 'sharon', 'easton', 'avon', 'abington', 'whitman',
+  'hanover', 'norwood', 'westwood', 'dedham', 'milton',
+  'chelsea', 'winthrop', 'revere', 'medford', 'woburn',
+  'newton', 'brookline', 'waltham', 'watertown', 'framingham',
+  'marlborough', 'worcester', 'springfield', 'lawrence', 'haverhill',
+  // Florida
+  'miami', 'miami gardens', 'north miami', 'miramar', 'pompano beach',
+  'fort lauderdale', 'west palm beach', 'orlando', 'tampa',
+  // New York
+  'new york', 'brooklyn', 'bronx', 'queens', 'manhattan',
+  'staten island', 'yonkers', 'mount vernon',
+  // Canada
+  'montreal', 'laval', 'longueuil',
+  // Haiti
+  'port-au-prince', 'pap', 'cap-haïtien', 'cap haitien',
+  'gonaïves', 'gonaives', 'les cayes', 'jacmel', 'pétion-ville',
+  'petion-ville', 'delmas', 'tabarre',
 ];
 
 function extractCity(text) {
-  for (const city of KNOWN_CITIES) {
+  // Check longer city names first to avoid partial matches
+  const sorted = [...KNOWN_CITIES].sort((a, b) => b.length - a.length);
+  for (const city of sorted) {
     if (text.includes(city)) return city;
   }
   return null;
 }
 
-// Tries keyword match, with and without a city prefix/suffix
 function preRoute(text) {
-  // Exact keyword match
   if (KEYWORD_MAP[text]) return { slug: KEYWORD_MAP[text], city: null };
-  // Strip city then match — handles "cheve Boston", "Boston cheve"
   const city = extractCity(text);
   if (city) {
     const withoutCity = text.replace(city, '').trim();
@@ -142,13 +156,10 @@ function preRoute(text) {
 
 // ════════════════════════════════════════════════════════════
 // AREA CODE → CITY INFERENCE
-// Auto-sets user location on first message from their phone number.
-// Eliminates "where are you?" friction for most US/Canada users.
 // ════════════════════════════════════════════════════════════
 const AREA_CODE_CITY = {
   '617': 'Boston',   '857': 'Boston',   '781': 'Boston',   '339': 'Boston',
   '508': 'Brockton', '774': 'Brockton',
-  '617': 'Boston',
   '305': 'Miami',    '786': 'Miami',    '954': 'Miami',
   '718': 'New York', '347': 'New York', '929': 'New York', '646': 'New York',
   '438': 'Montreal', '514': 'Montreal',
@@ -164,8 +175,6 @@ function inferCityFromPhone(waId) {
 
 // ════════════════════════════════════════════════════════════
 // MESSAGE DEDUPLICATION
-// Drops identical messages from same user within 3 seconds.
-// Prevents double-processing from Twilio retries or double-taps.
 // ════════════════════════════════════════════════════════════
 const _recentMsgs = new Map();
 function isDuplicateInbound(waId, message) {
@@ -179,8 +188,6 @@ function isDuplicateInbound(waId, message) {
 
 // ════════════════════════════════════════════════════════════
 // CLAUDE SAFE WRAPPER
-// Times out after 8s — prevents Twilio retries on slow responses.
-// Returns a safe fallback so the server never hangs.
 // ════════════════════════════════════════════════════════════
 async function detectTopicSafe(message, lang) {
   try {
@@ -263,8 +270,6 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
   const message = sanitize(content);
   if (!message) return;
 
-  // ── Duplicate message guard ────────────────────────────────
-  // Drops Twilio retries and accidental double-sends silently
   if (isDuplicateInbound(waId, message)) {
     console.log(`[router] Duplicate dropped: ${waId}`);
     return;
@@ -274,8 +279,6 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
     const user = await db.getOrCreateUser(waId, displayName);
     let lang   = user.language || 'en';
 
-    // ── Area code → city inference (new users only) ───────────
-    // Pre-populates location so first search is immediately relevant
     if (!user.location_city) {
       const inferredCity = inferCityFromPhone(waId);
       if (inferredCity) {
@@ -320,8 +323,7 @@ async function route({ user, message, lang, conversationHistory }) {
     const sessionState = user.session_state || {};
     const text         = message.trim().toLowerCase();
 
-    // ── BACK / 0 / MENU ───────────────────────────────────────
-    // ADMIN EVENT APPROVAL
+    // ── ADMIN EVENT APPROVAL ──────────────────────────────────
     const ADMIN_WA = process.env.ADMIN_WHATSAPP;
     if (ADMIN_WA && user.whatsapp_id === ADMIN_WA) {
       const approveRx = /^(yes|wi|aprove|approve|ok)(s+[0-9a-f-]{36})?$/i;
@@ -349,6 +351,7 @@ async function route({ user, message, lang, conversationHistory }) {
       }
     }
 
+    // ── BACK / MENU ───────────────────────────────────────────
     const backWords = new Set(['0', 'back', 'retounen', 'retour', 'menu']);
     if (backWords.has(text)) {
       await clearPendingMode(user);
@@ -372,13 +375,13 @@ async function route({ user, message, lang, conversationHistory }) {
       });
     }
 
-    // ── MORE results ──────────────────────────────────────────
+    // ── MORE RESULTS ──────────────────────────────────────────
     const moreWords = new Set(['more', 'plis', 'plus', 'next']);
     if (moreWords.has(text) && sessionState.last_search) {
       return await showMoreResults(user, lang);
     }
 
-    // ── Resolve pending SERVICE CATEGORY selection ────────────
+    // ── PENDING SERVICE CATEGORY ──────────────────────────────
     if (sessionState.pending_service_cat) {
       const handled = await resolveServiceCategory({
         pending: sessionState.pending_service_cat, message, user, lang, conversationHistory,
@@ -387,7 +390,7 @@ async function route({ user, message, lang, conversationHistory }) {
       await clearServiceCategory(user);
     }
 
-    // ── Resolve pending mode selection ────────────────────────
+    // ── PENDING MODE ──────────────────────────────────────────
     if (sessionState.pending_mode) {
       const handled = await resolvePendingMode({
         pending: sessionState.pending_mode, message, user, lang, conversationHistory,
@@ -396,9 +399,7 @@ async function route({ user, message, lang, conversationHistory }) {
       await clearPendingMode(user);
     }
 
-    // ── COMMUNITY EVENTS ─────────────────────────────────────
-    // Separate from the 'events' service category (event planners).
-    // Routes to paid event listings managed by Baz admin.
+    // ── COMMUNITY EVENTS ──────────────────────────────────────
     const EVENT_WORDS = new Set([
       'evènman', 'fèt', 'aktivite', 'events', 'event', 'événements',
       'ki pase', "what's on", 'whats on', 'eveman', 'evenman',
@@ -408,22 +409,49 @@ async function route({ user, message, lang, conversationHistory }) {
       return await eventsHandler.handle({ user, message, lang, city: evCity });
     }
 
-    // ── EVENTS "plis" pagination ──────────────────────────────
-    // Check for events pagination before regular search pagination
+    // ── EVENTS PAGINATION ─────────────────────────────────────
     if (moreWords.has(text) && sessionState.last_events_search) {
       const handled = await eventsHandler.handleMore({ user, lang });
       if (handled) return;
     }
 
     // ── VENDOR STATS ──────────────────────────────────────────
-    // Vendor texts "stats" → gets their business performance summary
     if (text === 'stats' || text === 'estatistik') {
       return await findHandler.handleVendorStats({ user, lang });
     }
 
+    // ── BUSINESS NAME LOOKUP ──────────────────────────────────
+    // User types a business name directly — e.g. "PiBonAn", "Jeanos"
+    // Runs before number selection, keyword pre-router, and Claude.
+    // Zero cost. Falls through silently if no match found.
+    if (message.trim().length >= 3) {
+      try {
+        const nameMatches = await db.findBusinessByName(message.trim());
+        if (nameMatches?.length === 1) {
+          console.log(`[router] Business name match: "${message.trim()}" → ${nameMatches[0].name}`);
+          return await findHandler.handleBusinessSelected({
+            user,
+            businessId: nameMatches[0].id,
+            lang,
+          });
+        }
+        if (nameMatches?.length > 1) {
+          console.log(`[router] Business name ambiguous: ${nameMatches.length} matches for "${message.trim()}"`);
+          const resultIds = nameMatches.map(b => b.id);
+          await db.updateSessionState(user.id, {
+            ...(user.session_state || {}),
+            last_result_ids: resultIds,
+            last_search: { query: message.trim(), categorySlug: null, city: null, offset: 0 },
+          });
+          return wa.sendBusinessResults(user.whatsapp_id, nameMatches, lang, false);
+        }
+        // Zero matches — fall through to normal routing
+      } catch (err) {
+        console.warn('[router] findBusinessByName error (non-fatal):', err.message);
+      }
+    }
+
     // ── BUSINESS SELECTION — number after results ─────────────
-    // User types "1"-"5" after seeing results → show business detail
-    // This also logs a contact_reveal event for analytics.
     if (sessionState.last_result_ids?.length) {
       const sel = parseInt(text, 10);
       if (!isNaN(sel) && sel >= 1 && sel <= sessionState.last_result_ids.length) {
@@ -432,8 +460,7 @@ async function route({ user, message, lang, conversationHistory }) {
       }
     }
 
-    // ── EMOJI MAP — zero API cost ─────────────────────────────
-    // Single-emoji messages resolved locally
+    // ── EMOJI MAP ─────────────────────────────────────────────
     if (EMOJI_MAP[message.trim()]) {
       const slug = EMOJI_MAP[message.trim()];
       console.log(`[router] Emoji match: ${message.trim()} → ${slug}`);
@@ -443,8 +470,7 @@ async function route({ user, message, lang, conversationHistory }) {
       });
     }
 
-    // ── KEYWORD PRE-ROUTER — saves ~40% Claude API calls ─────
-    // Catches: "cheve", "manje", "cheve Boston", "hair Brockton", etc.
+    // ── KEYWORD PRE-ROUTER ────────────────────────────────────
     const preRouted = preRoute(text);
     if (preRouted) {
       console.log(`[router] Keyword match: "${text}" → ${preRouted.slug}${preRouted.city ? ' / ' + preRouted.city : ''}`);
@@ -460,23 +486,20 @@ async function route({ user, message, lang, conversationHistory }) {
     }
 
     // ── SESSION-AWARE CITY REFINEMENT ─────────────────────────
-    // User sees results, types a city → refine instead of "unknown"
-    // e.g. searched "cheve", got results, types "Boston"
     const extractedCity = extractCity(text);
     if (extractedCity && text === extractedCity && sessionState.last_search) {
       console.log(`[router] City refinement: ${extractedCity}`);
       return await refineSearchWithCity(user, extractedCity, lang);
     }
 
-    // ── DETECT TOPIC (Claude) — only for complex messages ─────
-    // With pre-routing in place, Claude now handles ~35% of messages
-    // instead of 100%. Timeout prevents Twilio retry storms.
+    // ── DETECT TOPIC (Claude) — complex / natural language ────
+    // Claude now also extracts city from natural language queries.
+    // e.g. "kote mwen ka jwenn yon bon resto Randolph?" →
+    //   { type: 'category', category_slug: 'restaurant', city: 'Randolph', lang: 'ht' }
     const topic = await detectTopicSafe(message, lang);
     console.log(`[router] Claude topic=${JSON.stringify(topic)} user=${user.whatsapp_id}`);
 
-    // Handle timeout fallback
-    if (!topic || topic.type === 'unknown' && !topic.category_slug) {
-      // If Claude timed out and we have a city extraction, try city refinement
+    if (!topic || (topic.type === 'unknown' && !topic.category_slug)) {
       if (extractedCity && sessionState.last_search) {
         return await refineSearchWithCity(user, extractedCity, lang);
       }
@@ -490,11 +513,13 @@ async function route({ user, message, lang, conversationHistory }) {
     }
 
     // ── Auto-save detected city ───────────────────────────────
-    const detectedCity = topic.city || extractedCity;
+    // Merges Claude's extraction with local extractCity() result.
+    // Claude catches cities not in KNOWN_CITIES; local catches everything else.
+    const detectedCity = topic.city || extractedCity || null;
     if (detectedCity && detectedCity !== user.location_city) {
       try {
         await db.updateUser(user.id, {
-          location_city: detectedCity,
+          location_city:    detectedCity,
           location_country: topic.country || user.location_country,
         });
       } catch {}
@@ -526,14 +551,13 @@ async function route({ user, message, lang, conversationHistory }) {
 async function handleCategory({ topic, user, message, lang, conversationHistory, forceMenu = false }) {
   const { category_slug, city, country } = topic;
 
-  // Services umbrella → submenu
   if (category_slug === 'services') {
     return await handleServicesMenu(user, lang);
   }
 
-  const sessionState    = user.session_state || {};
-  const cat             = bySlug(category_slug);
-  const allOptions      = getModeOptions(category_slug, lang);
+  const sessionState = user.session_state || {};
+  const cat          = bySlug(category_slug);
+  const allOptions   = getModeOptions(category_slug, lang);
 
   if (!allOptions.length || !cat) {
     return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
@@ -542,7 +566,6 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
   const resolvedCity    = city    || user.location_city    || null;
   const resolvedCountry = country || user.location_country || null;
 
-  // Single mode (find-only) — dispatch directly
   if (allOptions.length === 1) {
     try {
       await db.updateSessionState(user.id, { ...sessionState, last_category: category_slug });
@@ -556,7 +579,6 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
     });
   }
 
-  // Multi-mode (future-proofing)
   const menuText = buildModeMenu(cat, allOptions, lang);
   try {
     await db.updateSessionState(user.id, { ...sessionState, last_category: category_slug });
@@ -566,9 +588,7 @@ async function handleCategory({ topic, user, message, lang, conversationHistory,
 }
 
 // ════════════════════════════════════════════════════════════
-// SESSION-AWARE CITY REFINEMENT
-// Re-runs the last search with a new city filter.
-// Triggered when user types a bare city name after getting results.
+// CITY REFINEMENT
 // ════════════════════════════════════════════════════════════
 async function refineSearchWithCity(user, city, lang) {
   const sessionState = user.session_state || {};
@@ -635,14 +655,14 @@ async function handleServicesMenu(user, lang) {
 }
 
 // ════════════════════════════════════════════════════════════
-// RESOLVE SERVICE CATEGORY SELECTION
+// RESOLVE SERVICE CATEGORY
 // ════════════════════════════════════════════════════════════
 async function resolveServiceCategory({ pending, message, user, lang, conversationHistory }) {
   if (Date.now() > pending.expires_at) return false;
 
-  const text    = message.trim().toLowerCase();
-  const num     = parseInt(text, 10);
-  let selected  = null;
+  const text   = message.trim().toLowerCase();
+  const num    = parseInt(text, 10);
+  let selected = null;
 
   if (!isNaN(num) && num >= 1 && num <= SERVICE_OPTIONS.length) {
     selected = SERVICE_OPTIONS.find(s => s.num === num) || null;
@@ -752,7 +772,7 @@ async function showMoreResults(user, lang) {
   const lastSearch   = sessionState.last_search;
   if (!lastSearch) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
 
-  const newOffset  = (lastSearch.offset || 0) + 5;
+  const newOffset = (lastSearch.offset || 0) + 5;
   try {
     const businesses = await db.searchBusinesses({
       query: lastSearch.query, categorySlug: lastSearch.categorySlug,
