@@ -393,7 +393,10 @@ async function route({ user, message, lang, conversationId }) {
 
     // ── MORE RESULTS ──────────────────────────────────────────
     const moreWords = new Set(['more', 'plis', 'plus', 'next']);
-    if (moreWords.has(text) && sessionState.last_search) {
+    const SEARCH_TTL = 30 * 60 * 1000; // 30 min — last_search expires
+    const lastSearchFresh = sessionState.last_search &&
+      (Date.now() - (sessionState.last_search.ts || 0)) < SEARCH_TTL;
+    if (moreWords.has(text) && lastSearchFresh) {
       return await showMoreResults(user, lang);
     }
 
@@ -471,8 +474,11 @@ async function route({ user, message, lang, conversationId }) {
     // ── BUSINESS NAME LOOKUP ──────────────────────────────────
     // Only runs after keyword pre-router fails — avoids DB call
     // for the ~80% of messages that are category keywords.
-    // Uses RPC with unaccent — "pibonan" finds "PiBonAn".
-    if (normText.length >= 3) {
+    // Skipped if input is a known city AND user has an active search
+    // (that means they're refining by city, not looking up a business name).
+    const inputIsCity = extractCity(normText) === normText;
+    const hasActiveSearch = lastSearchFresh;
+    if (normText.length >= 3 && !(inputIsCity && hasActiveSearch)) {
       try {
         const nameMatches = await db.findBusinessByName(normText);
         if (nameMatches?.length === 1) {
@@ -481,10 +487,12 @@ async function route({ user, message, lang, conversationId }) {
         }
         if (nameMatches?.length > 1) {
           console.log(`[router] Name ambiguous: ${nameMatches.length} matches for "${normText}"`);
+          const { last_search: _ls, last_result_ids: _lr, last_category: _lc, ...cleanState } = sessionState;
           await db.updateSessionState(user.id, {
-            ...sessionState,
+            ...cleanState,
             last_result_ids: nameMatches.map(b => b.id),
-            last_search: { query: normText, categorySlug: null, city: null, offset: 0 },
+            last_result_ts:  Date.now(),
+            last_search: { query: normText, categorySlug: null, city: null, offset: 0, ts: Date.now() },
           });
           return wa.sendBusinessResults(user.whatsapp_id, nameMatches, lang, false);
         }
@@ -494,7 +502,10 @@ async function route({ user, message, lang, conversationId }) {
     }
 
     // ── BUSINESS SELECTION — number after results ─────────────
-    if (sessionState.last_result_ids?.length) {
+    const RESULT_TTL = 10 * 60 * 1000; // 10 min — result IDs expire
+    const resultsFresh = sessionState.last_result_ids?.length &&
+      (Date.now() - (sessionState.last_result_ts || 0)) < RESULT_TTL;
+    if (resultsFresh) {
       const sel = parseInt(text, 10);
       if (!isNaN(sel) && sel >= 1 && sel <= sessionState.last_result_ids.length) {
         return await findHandler.handleBusinessSelected({
@@ -776,10 +787,13 @@ async function showMoreResults(user, lang) {
 
   const newOffset = (lastSearch.offset || 0) + 5;
   try {
-    const { results: businesses } = await db.searchBusinesses({
-      query: lastSearch.query, categorySlug: lastSearch.categorySlug,
-      city:  lastSearch.city,  country: lastSearch.country,
-      limit: 5, offset: newOffset,
+    const { results: businesses } = await db.searchWithCluster({
+      query:        lastSearch.query,
+      categorySlug: lastSearch.categorySlug,
+      city:         lastSearch.city,
+      country:      lastSearch.country,
+      limit:        5,
+      offset:       newOffset,
     });
     if (!businesses.length) {
       const noMore = { ht: `📋 Pa gen plis rezilta.\n\n_Ekri *menu* pou retounen_`, en: `📋 No more results.\n\n_Type *menu* to go back_`, fr: `📋 Plus de résultats.\n\n_Tapez *menu* pour revenir_` };
