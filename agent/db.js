@@ -459,11 +459,18 @@ function logBusinessEvent({ businessId, eventType, userId, searchQuery, category
     city:            city           || null,
     result_position: resultPosition || null,
   }).then(({ error }) => {
-    if (error) { console.warn('[db] logBusinessEvent failed:', error.message); return; }
-    if (eventType === 'impression') {
-      supabase.rpc('increment_impression_count', { p_business_id: businessId }).catch(() => {});
+    if (error) {
+      console.warn('[db] logBusinessEvent insert failed:', error.message, '| bizId:', businessId);
+      return;
     }
-  }).catch(() => {});
+    if (eventType === 'impression') {
+      supabase.rpc('increment_impression_count', { p_business_id: businessId })
+        .then(({ error: rpcErr }) => {
+          if (rpcErr) console.warn('[db] increment_impression_count failed:', rpcErr.message, '| bizId:', businessId);
+        })
+        .catch(err => console.warn('[db] increment_impression_count threw:', err.message));
+    }
+  }).catch(err => console.warn('[db] logBusinessEvent threw:', err.message));
 }
 
 // ============================================================
