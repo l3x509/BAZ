@@ -628,29 +628,21 @@ let _editData = null;
 
 async function openEdit(id) {
   editingId = id;
+  _editData = null;
   document.getElementById('drawer-title').textContent = 'Edit Business';
   document.getElementById('deactivate-btn').style.display = '';
   document.getElementById('save-btn').textContent = 'Save changes';
-
-  // Find from current table data — re-fetch for freshness
-  try {
-    const { businesses } = await api(\`/admin/directory/data?search=\`); // fetch all won't scale, use id
-    // Actually fetch by searching — simple approach
-    const r = await api(\`/admin/directory/data?search=\`);
-    // Better: fetch single business
-    const sb_r = await fetch(\`/admin/directory/data?secret=\${encodeURIComponent(SECRET)}&id=\${id}\`);
-    // Fall back to what we have in DOM
-    fillForm(null, id);
-  } catch {}
-
-  // Re-fetch all and find by id
-  try {
-    const { businesses } = await api(\`/admin/directory/data?page=0&limit=1000\`);
-    const b = businesses.find(x => x.id === id);
-    if (b) { _editData = b; fillForm(b); }
-  } catch {}
-
+  fillForm(null); // clear form immediately
   openDrawer();
+
+  // Fetch single business by ID — endpoint added in directory.js
+  try {
+    const b = await api('/admin/directory/business/' + id);
+    _editData = b;
+    fillForm(b);
+  } catch (err) {
+    toast('Could not load business: ' + err.message, 'error');
+  }
 }
 
 function openAdd() {
