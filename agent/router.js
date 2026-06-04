@@ -529,14 +529,10 @@ async function route({ user, message, lang, conversationId }) {
       lang = topic.lang;
     }
 
-    // Auto-save detected city
-    const detectedCity = topic.city || extractedCity || null;
-    if (detectedCity && normalize(detectedCity) !== normalize(user.location_city || '')) {
-      db.updateUser(user.id, {
-        location_city:    detectedCity,
-        location_country: topic.country || user.location_country,
-      }).catch(() => {});
-    }
+    // NOTE: We intentionally do NOT save city from search queries to user.location_city.
+    // "Food in Holbrook" means search Holbrook now — not that the user lives in Holbrook.
+    // City is only saved from area code inference on first message (see processMessage above).
+    // Pass detected city into this search only, via topic.city.
 
     switch (topic.type) {
       case 'category':
