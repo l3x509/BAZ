@@ -438,7 +438,7 @@ async function route({ user, message, lang, conversationId }) {
       const slug = EMOJI_MAP[message.trim()];
       console.log(`[router] Emoji: ${message.trim()} → ${slug}`);
       return await handleCategory({
-        topic: { type: 'category', category_slug: slug, city: user.location_city || null, country: null },
+        topic: { type: 'category', category_slug: slug, city: null, country: null },
         user, message, lang, conversationId,
       });
     }
@@ -452,7 +452,10 @@ async function route({ user, message, lang, conversationId }) {
         topic: {
           type: 'category',
           category_slug: preRouted.slug,
-          city: preRouted.city || user.location_city || null,
+          // Only pass city if explicitly in the message.
+          // Saved location_city goes in as userCity (soft preference).
+          // This prevents "avoka" from being locked to Randolph forever.
+          city:    preRouted.city || null,
           country: null,
         },
         user, message, lang, conversationId,
@@ -578,10 +581,11 @@ async function handleCategory({ topic, user, message, lang, conversationId, conv
     try { await db.updateSessionState(user.id, { ...sessionState, last_category: category_slug }); } catch {}
     return dispatch(allOptions[0].handler, {
       user, message, lang, conversationHistory,
-      category: category_slug,
-      city:     resolvedCity,
-      country:  resolvedCountry,
-      mode:     allOptions[0].mode,
+      category:  category_slug,
+      city:      resolvedCity,               // explicit city from message
+      userCity:  user.location_city || null, // saved city — soft preference
+      country:   resolvedCountry,
+      mode:      allOptions[0].mode,
     });
   }
 
@@ -600,7 +604,7 @@ async function refineSearchWithCity(user, city, lang) {
   if (!lastSearch) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
 
   try {
-    const businesses = await db.searchBusinesses({
+    const { results: businesses, broadened, triedCity } = await db.searchBusinesses({
       query:        lastSearch.query,
       categorySlug: lastSearch.categorySlug,
       city,
@@ -611,11 +615,26 @@ async function refineSearchWithCity(user, city, lang) {
 
     if (!businesses.length) {
       const noResults = {
-        ht: `📋 Pa gen rezilta pou *${city}*.\n\n_Eseye yon lòt vil oswa ekri *menu* pou retounen_`,
-        en: `📋 No results in *${city}*.\n\n_Try another city or type *menu* to go back_`,
-        fr: `📋 Aucun résultat à *${city}*.\n\n_Essayez une autre ville ou tapez *menu* pour revenir_`,
+        ht: `😔 Pa gen biznis nan *${city}* kounye a.\n\n_Eseye yon lòt vil oswa ekri *menu* pou retounen_`,
+        en: `😔 No businesses in *${city}* yet.\n\n_Try another city or type *menu* to go back_`,
+        fr: `😔 Aucun résultat à *${city}* pour l'instant.\n\n_Essayez une autre ville ou tapez *menu* pour revenir_`,
       };
       return sendText(user.whatsapp_id, noResults[lang] || noResults.en);
+    }
+
+    if (broadened && triedCity) {
+      const note = {
+        ht: `📍 Pa gen rezilta nan *${triedCity}* — men lòt biznis:
+
+`,
+        en: `📍 None in *${triedCity}* yet — showing nearby results:
+
+`,
+        fr: `📍 Aucun résultat à *${triedCity}* — voici d'autres résultats:
+
+`,
+      };
+      await sendText(user.whatsapp_id, note[lang] || note.en);
     }
 
     await db.updateSessionState(user.id, { ...sessionState, last_search: { ...lastSearch, city, offset: 0 } });
@@ -751,7 +770,7 @@ async function showMoreResults(user, lang) {
 
   const newOffset = (lastSearch.offset || 0) + 5;
   try {
-    const businesses = await db.searchBusinesses({
+    const { results: businesses } = await db.searchBusinesses({
       query: lastSearch.query, categorySlug: lastSearch.categorySlug,
       city:  lastSearch.city,  country: lastSearch.country,
       limit: 5, offset: newOffset,
