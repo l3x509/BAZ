@@ -22,7 +22,7 @@ async function handle({ user, message, lang, conversationHistory, category, city
   const searchUserCity = userCity || user.location_city || null;
   const searchCountry = country || user.location_country || null;
 
-  const { results: businesses, broadened, triedCity } = await db.searchBusinesses({
+  const { results: businesses, broadened, triedCity, citiesSearched } = await db.searchWithCluster({
     query:        message,
     categorySlug: category      || null,
     city:         searchCity,
@@ -40,33 +40,47 @@ async function handle({ user, message, lang, conversationHistory, category, city
   }).catch(() => {});
 
   if (!businesses.length) {
-    return sendNoResults({ user, lang, category, city: searchCity || searchUserCity });
+    // Only show city in no-results if user explicitly mentioned it.
+    // Never show saved location_city — user typed "Hair" not "Hair Brockton".
+    return sendNoResults({ user, lang, category, city: searchCity || null });
   }
 
   // ── If we broadened past the requested city, show a soft note ─
   // "Pa gen nan Randolph — men lòt biznis:"
   // Never a dead end — users always see something.
   if (broadened && triedCity) {
+    const nearby = (citiesSearched || [])
+      .filter(c => c !== triedCity && c !== searchCity)
+      .slice(0, 3)
+      .map(c => c.charAt(0).toUpperCase() + c.slice(1))
+      .join(', ');
+
     const note = {
-      ht: `📍 Pa gen biznis nan *${triedCity}* kounye a — men lòt ki disponib:\n`,
-      en: `📍 None in *${triedCity}* yet — here's what's available:\n`,
-      fr: `📍 Aucun résultat à *${triedCity}* — voici ce qui est disponible:\n`,
+      ht: `📍 Pa gen anpil nan *${triedCity}* — n ap montre w sa ki pre w tou${nearby ? ` (${nearby})` : ''}:\n`,
+      en: `📍 Showing nearby results too${nearby ? ` (${nearby})` : ''}:\n`,
+      fr: `📍 Résultats des environs inclus${nearby ? ` (${nearby})` : ''}:\n`,
     };
     await wa.sendText(user.whatsapp_id, note[lang] || note.en);
   }
 
   // ── Save search state + result IDs ───────────────────────────
   try {
+    // Prune stale keys before writing — prevents session state bloat
+    const { last_search: _ls, last_result_ids: _lr, last_category: _lc, ...cleanState } = user.session_state || {};
+
     await db.updateSessionState(user.id, {
-      ...user.session_state,
+      ...cleanState,
       last_category:   category,
       last_result_ids: businesses.map(b => b.id),
+      last_result_ts:  Date.now(), // expiry timestamp for result IDs
       last_search: {
         categorySlug: category,
         city:         searchCity || searchUserCity,
         country:      searchCountry,
         query:        message,
         offset:       0,
+        cluster:      true,
+        ts:           Date.now(), // expiry timestamp
       },
     });
   } catch (err) { console.warn('[find] Could not save session state:', err.message); }
@@ -105,10 +119,17 @@ async function sendNoResults({ user, lang, category, city }) {
   const loc = city ? { ht: ` nan *${city}*`, en: ` in *${city}*`, fr: ` à *${city}*` }
                    : { ht: '', en: '', fr: '' };
 
+  // Category-aware coming-soon hint
+  const hint = {
+    ht: `_N ap ajoute plis biznis chak semèn. Voye non yon biznis ou konnen: *bazht.com*_`,
+    en: `_We add new businesses every week. Know one? Submit at: *bazht.com*_`,
+    fr: `_Nous ajoutons de nouvelles entreprises chaque semaine. Vous en connaissez une? *bazht.com*_`,
+  };
+
   const msg = {
-    ht: `😔 Mwen pa jwenn biznis${loc.ht} kounye a.\n\nEsaye:\n• Ekri yon lòt kategori\n• Ekri non vil la — *Boston*, *Miami*, *PAP*\n• *menu* pou retounen`,
-    en: `😔 No businesses found${loc.en} right now.\n\nTry:\n• A different category\n• A city name — *Boston*, *Miami*, *PAP*\n• *menu* to go back`,
-    fr: `😔 Aucune entreprise trouvée${loc.fr}.\n\nEssayez:\n• Une autre catégorie\n• Un nom de ville — *Boston*, *Miami*, *PAP*\n• *menu* pour revenir`,
+    ht: `😔 Pa gen biznis${loc.ht} nan kategori sa kounye a.\n\n${hint.ht}\n\nEsaye:\n• Yon lòt kategori\n• *menu* pou retounen`,
+    en: `😔 No businesses${loc.en} in this category yet.\n\n${hint.en}\n\nTry:\n• A different category\n• *menu* to go back`,
+    fr: `😔 Aucune entreprise${loc.fr} dans cette catégorie pour l'instant.\n\n${hint.fr}\n\nEssayez:\n• Une autre catégorie\n• *menu* pour revenir`,
   };
   return wa.sendText(user.whatsapp_id, msg[lang] || msg.en);
 }
