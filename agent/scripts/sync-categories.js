@@ -30,7 +30,7 @@ const CATEGORIES = [
     slug: 'restaurant', name_en: 'Restaurant', icon: '🍲', is_active: true, sort_order: 1,
     keywords: {
       en: ['restaurant', 'food', 'eat', 'dining', 'meal', 'lunch', 'dinner', 'breakfast', 'takeout', 'haitian food', 'cuisine'],
-      ht: ['manje', 'restoran', 'griyo', 'kizin', 'bwè', 'manje ayisyen', 'diri', 'soup joumou', 'poul', 'lalo'],
+      ht: ['manje', 'restoran', 'griyo', 'kizin', 'bwe', 'manje ayisyen', 'diri', 'soup joumou', 'poul', 'lalo', 'tonmtonm', 'bouyon', 'soup', 'joumou', 'ze', 'akasan', 'ju lam', 'ju manioc', 'bannann', 'pikliz', 'legim', 'tassot', 'lanbi', 'pwason', 'kabrit', 'boeuf', 'diri kole', 'sos pwa', 'pate', 'akra'],
       fr: ['restaurant', 'manger', 'repas', 'nourriture', 'cuisine', 'déjeuner', 'dîner'],
     },
   },
