@@ -278,6 +278,31 @@ async function searchBusinesses({ query, categorySlug, city, country, limit = 5,
   return [];
 }
 
+
+// ── BUSINESS NAME LOOKUP ─────────────────────────────────────
+// Finds businesses by name match (case-insensitive, partial ok).
+// Used by router for direct name queries like "PiBonAn".
+// Returns up to 5 matches. Zero matches returns [].
+async function findBusinessByName(input) {
+  if (!input || input.trim().length < 3) return [];
+  const term = input.trim();
+
+  const { data, error } = await supabase
+    .from('businesses')
+    .select('*, service_categories (slug, name_en, name_ht, name_fr, icon)')
+    .eq('status', 'active')
+    .ilike('name', `%${term}%`)
+    .order('is_featured', { ascending: false })
+    .order('avg_rating',   { ascending: false })
+    .limit(5);
+
+  if (error) {
+    console.warn('[db] findBusinessByName error:', error.message);
+    return [];
+  }
+  return data || [];
+}
+
 async function getBusinessById(id) {
   const { data, error } = await supabase
     .from('businesses')
@@ -439,6 +464,7 @@ module.exports = {
   isDuplicate,
   // Businesses
   resolveCategory,
+  findBusinessByName,
   searchBusinesses,
   getBusinessById,
   getCategories,
