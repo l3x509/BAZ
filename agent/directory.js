@@ -518,6 +518,8 @@ async function api(path, opts = {}) {
   return r.json();
 }
 
+let categoriesLoaded = false;
+
 async function init() {
   await Promise.all([loadStats(), loadCategories()]);
   load();
@@ -662,22 +664,49 @@ function openAdd() {
 }
 
 function fillForm(b) {
-  const v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-  const c = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+  // Helper: set input/textarea/select value safely
+  const v = (id, val) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = (val !== null && val !== undefined) ? val : '';
+  };
+  const c = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = !!val;
+  };
 
-  v('f-name',        b?.name);
-  v('f-description', b?.description);
-  v('f-phone',       b?.phone);
-  v('f-whatsapp',    b?.whatsapp);
-  v('f-website',     b?.website);
-  v('f-address',     b?.address);
-  v('f-city',        b?.city);
-  v('f-hours',       b?.meta?.hours);
-  v('f-category',    b?.category_id);
-  c('f-verified',    b?.is_verified);
-  c('f-featured',    b?.is_featured);
-  c('f-active',      b ? b.status === 'active' : true);
-  selectTier(b?.listing_tier || 'free');
+  if (!b) {
+    // Clear all fields
+    ['f-name','f-description','f-phone','f-whatsapp','f-website',
+     'f-address','f-city','f-hours','f-category'].forEach(id => v(id, ''));
+    c('f-verified', false); c('f-featured', false); c('f-active', true);
+    selectTier('free');
+    return;
+  }
+
+  v('f-name',        b.name);
+  v('f-description', b.description);
+  v('f-phone',       b.phone);
+  v('f-whatsapp',    b.whatsapp);
+  v('f-website',     b.website);
+  v('f-address',     b.address);
+  v('f-city',        b.city);
+  v('f-hours',       b.meta?.hours);
+  c('f-verified',    b.is_verified);
+  c('f-featured',    b.is_featured);
+  c('f-active',      b.status === 'active');
+  selectTier(b.listing_tier || 'free');
+
+  // Category select — set after a tick to ensure options are rendered
+  const catEl = document.getElementById('f-category');
+  if (catEl && b.category_id) {
+    // Try immediately first
+    catEl.value = b.category_id;
+    // If it didn't take (options not ready), retry after tick
+    if (catEl.value !== b.category_id) {
+      setTimeout(() => { catEl.value = b.category_id; }, 50);
+    }
+  }
 }
 
 function selectTier(tier) {
