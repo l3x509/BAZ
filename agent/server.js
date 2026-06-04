@@ -63,6 +63,7 @@ setInterval(() => {
 // json: bazht.com vendor registration
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
+app.use('/admin', require('./directory'));
 
 // ── CORS ──────────────────────────────────────────────────────
 // Allows bazht.com to POST /vendor/register and GET /admin/analytics/data
