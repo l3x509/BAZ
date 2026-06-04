@@ -337,23 +337,33 @@ async function searchBusinesses({
     return data || [];
   }
 
-  // Strategy 1: category + explicit city
-  let results = await rpcSearch(resolvedCity);
-  if (results.length) return results;
+  // Strategy 1: explicit city from message
+  if (resolvedCity) {
+    const results = await rpcSearch(resolvedCity);
+    if (results.length) return { results, usedCity: resolvedCity, broadened: false };
+  }
 
-  // Strategy 2: category + user's saved city (if different)
+  // Strategy 2: user's saved city (no explicit city in message)
   if (!resolvedCity && resolvedUserCity) {
-    results = await rpcSearch(resolvedUserCity);
-    if (results.length) return results;
+    const results = await rpcSearch(resolvedUserCity);
+    if (results.length) return { results, usedCity: resolvedUserCity, broadened: false };
   }
 
-  // Strategy 3: category, no city filter (show national results)
-  if (resolvedCity || resolvedUserCity) {
-    results = await rpcSearch(null);
-    if (results.length) return results;
+  // Strategy 3: ALWAYS broaden to national if city search found nothing.
+  // This ensures users never hit a dead end just because their saved city
+  // has no listings yet. Show results with a "broadened" flag so the
+  // router can add a soft note like "Pa gen nan Randolph — men lòt rezilta:"
+  const broadResults = await rpcSearch(null);
+  if (broadResults.length) {
+    return {
+      results:   broadResults,
+      usedCity:  null,
+      broadened: !!(resolvedCity || resolvedUserCity), // true = we had a city but fell back
+      triedCity: resolvedCity || resolvedUserCity || null,
+    };
   }
 
-  return [];
+  return { results: [], usedCity: null, broadened: false, triedCity: null };
 }
 
 // ── findBusinessByName ────────────────────────────────────────
