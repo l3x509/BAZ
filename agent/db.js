@@ -533,9 +533,9 @@ async function getPendingEventsCount() {
 const CITY_CLUSTERS = {
   // ── Greater Boston / South Shore ──────────────────────────
   randolph:         [['holbrook','stoughton','canton','milton'],         ['brockton','quincy','boston','dedham']],
-  holbrook:         [['randolph','stoughton','brockton','avon'],         ['canton','milton','quincy','easton']],
-  brockton:         [['stoughton','easton','avon','west bridgewater'],   ['randolph','holbrook','bridgewater','taunton']],
-  stoughton:        [['randolph','holbrook','canton','easton'],          ['brockton','dedham','norwood','avon']],
+  holbrook:         [['randolph','stoughton','brockton','avon','canton'],['milton','quincy','easton','west bridgewater']],
+  brockton:         [['holbrook','stoughton','easton','avon','west bridgewater'],   ['randolph','canton','bridgewater','taunton']],
+  stoughton:        [['randolph','holbrook','canton','easton','brockton'],['dedham','norwood','avon','west bridgewater']],
   canton:           [['randolph','stoughton','norwood','dedham'],        ['milton','quincy','holbrook','westwood']],
   milton:           [['boston','quincy','canton','randolph'],            ['dedham','norwood','holbrook','stoughton']],
   boston:           [['dorchester','mattapan','roxbury','hyde park'],    ['randolph','milton','chelsea','quincy']],
@@ -571,9 +571,11 @@ for (const [city, rings] of Object.entries(CITY_CLUSTERS)) {
 
 // ── searchWithCluster ─────────────────────────────────────────
 // Wraps searchBusinesses with city cluster expansion.
-// Expands outward ring by ring until PAGE_SIZE results are found.
-// Returns { results, citiesSearched } so find.js can show city labels
-// on results from expanded rings.
+// KEY RULE: Premium and Pro businesses are ALWAYS included from
+// any ring — they are never blocked by a full Ring 0. This ensures
+// paying businesses are always visible regardless of local competition.
+// The final list is capped at limit AFTER tier-sort, so premium always
+// displaces a free listing, never gets excluded by one.
 async function searchWithCluster({
   query, categorySlug, city, country,
   limit = 5, offset = 0,
@@ -589,52 +591,50 @@ async function searchWithCluster({
     return { results, broadened, triedCity, citiesSearched: [] };
   }
 
-  const normCity   = normalize(effectiveCity);
-  const rings      = CLUSTER_MAP[normCity] || [];
-  const collected  = [];
-  const seen       = new Set();
+  const normCity       = normalize(effectiveCity);
+  const rings          = CLUSTER_MAP[normCity] || [];
+  const collected      = [];
+  const seen           = new Set();
   const citiesSearched = [effectiveCity];
+  const PAID_TIERS     = new Set(['premium', 'pro']);
 
-  // ── Ring 0: exact city ────────────────────────────────────
+  // Helper: count only free/standard in collected (paid never block expansion)
+  const freeCount = () => collected.filter(b => !PAID_TIERS.has(b.listing_tier)).length;
+
+  // ── Ring 0: home city ─────────────────────────────────────
   const ring0 = await searchBusinesses({
-    query, categorySlug,
-    city:      effectiveCity,
-    country,
-    limit:     limit,
-    offset:    0,
-    userCity:  null,
-    userCountry,
+    query, categorySlug, city: effectiveCity, country,
+    limit: limit * 2, // fetch extra so we don't miss paid listings
+    offset: 0, userCity: null, userCountry,
   });
 
   for (const b of ring0.results) {
     if (!seen.has(b.id)) { seen.add(b.id); collected.push(b); }
   }
 
-  // ── Expand rings until full ───────────────────────────────
-  for (const ring of rings) {
-    if (collected.length >= limit) break;
-    const needed = limit - collected.length;
+  // ── Expand rings ──────────────────────────────────────────
+  // Stop only when we have enough FREE/STANDARD results.
+  // Always continue if there might be PAID listings in outer rings.
+  for (let ringIdx = 0; ringIdx < rings.length; ringIdx++) {
+    const ring = rings[ringIdx];
+
+    // Stop expanding free slots once full
+    // But always check ring 1 for paid businesses regardless
+    if (freeCount() >= limit && ringIdx > 0) break;
 
     for (const ringCity of ring) {
-      if (collected.length >= limit) break;
-
       const ringResults = await searchBusinesses({
-        query, categorySlug,
-        city:      ringCity,
-        country,
-        limit:     needed,
-        offset:    0,
-        userCity:  null,
-        userCountry,
+        query, categorySlug, city: ringCity, country,
+        limit: limit,
+        offset: 0, userCity: null, userCountry,
       });
 
       for (const b of ringResults.results) {
         if (!seen.has(b.id)) {
           seen.add(b.id);
-          collected.push({ ...b, _fromCity: ringCity }); // tag with source city
-          citiesSearched.push(ringCity);
+          collected.push({ ...b, _fromCity: ringCity });
+          if (!citiesSearched.includes(ringCity)) citiesSearched.push(ringCity);
         }
-        if (collected.length >= limit) break;
       }
     }
   }
@@ -647,8 +647,8 @@ async function searchWithCluster({
     return (b.avg_rating || 0) - (a.avg_rating || 0);
   });
 
-  const broadened    = collected.some(b => b._fromCity);
-  const triedCity    = broadened ? effectiveCity : null;
+  const broadened = collected.some(b => b._fromCity);
+  const triedCity = broadened ? effectiveCity : null;
 
   return {
     results:       collected.slice(0, limit),
