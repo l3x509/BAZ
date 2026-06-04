@@ -183,14 +183,24 @@ const CATEGORIES = [
 async function syncCategories() {
   console.log('[sync-categories] Starting...');
 
-  const rows = CATEGORIES.map(c => ({
-    slug:       c.slug,
-    name_en:    c.name_en,
-    icon:       c.icon,
-    is_active:  c.is_active,
-    sort_order: c.sort_order,
-    keywords:   c.keywords,
-  }));
+  // Normalize all keywords before upserting so DB stores pre-normalized values.
+  // This ensures resolveCategory() cache matches work with/without diacritics.
+  const rows = CATEGORIES.map(c => {
+    const keywords = {};
+    for (const [lang, kws] of Object.entries(c.keywords || {})) {
+      keywords[lang] = [...new Set(kws.map(normalize))]; // normalize + dedupe
+    }
+    return {
+      slug:       c.slug,
+      name_en:    c.name_en,
+      name_ht:    c.name_ht,
+      name_fr:    c.name_fr,
+      icon:       c.icon,
+      is_active:  c.is_active,
+      sort_order: c.sort_order,
+      keywords,
+    };
+  });
 
   const { error } = await supabase
     .from('service_categories')
