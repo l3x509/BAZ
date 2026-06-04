@@ -85,7 +85,7 @@ router.get('/analytics/data', guard, async (req, res) => {
   const today     = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(now - 86400000).toISOString().slice(0, 10);
 
-  // ── All queries in parallel, each fails safely ────────────────────────────
+  // ── Phase 1: all independent queries in parallel ─────────────────────────
   const supabase = sb();
   const [
     users,
@@ -93,35 +93,41 @@ router.get('/analytics/data', guard, async (req, res) => {
     convos,
     recentUsers,
     events,
-    bizList,
+    bizAllTime,
   ] = await Promise.all([
-    // Users — only fields needed, no limit (we need all for growth/retention)
     sq(supabase.from('users').select('id, created_at, language, last_seen_at'), 'users'),
-    // Messages — 30 days only (was 90, wasting 60 days of fetched-but-unused data)
     sq(supabase.from('messages')
       .select('id, created_at, direction, conversation_id, content')
       .gte('created_at', d30ago), 'messages'),
-    // Conversations — 30 days
     sq(supabase.from('conversations')
       .select('id, created_at, user_id')
       .gte('created_at', d30ago), 'conversations'),
-    // Recent users for the activity table
     sq(supabase.from('users')
       .select('name, whatsapp_id, last_seen_at, language')
       .order('last_seen_at', { ascending: false })
       .limit(12), 'recentUsers'),
-    // Business impression events — 30 days
     sq(supabase.from('business_events')
       .select('business_id, category_slug, created_at')
       .eq('event_type', 'impression')
       .gte('created_at', d30ago), 'events'),
-    // Top businesses by all-time impression count
+    // All-time top 15 by impression_count column
     sq(supabase.from('businesses')
       .select('id, name, impression_count, listing_tier, city, service_categories(name_en, icon)')
       .eq('status', 'active')
       .order('impression_count', { ascending: false })
-      .limit(20), 'businesses'),
+      .limit(15), 'bizAllTime'),
   ]);
+
+  // ── Phase 2: fetch businesses seen in events (can't know IDs until phase 1) ──
+  // This is the fix for "Unknown" names — bizAllTime only covers top 15 by
+  // all-time count, but events may reference ANY business. Fetch them by ID.
+  const eventBizIds = [...new Set(events.map(e => e.business_id).filter(Boolean))];
+  const bizList = eventBizIds.length
+    ? await sq(supabase.from('businesses')
+        .select('id, name, impression_count, listing_tier, city, service_categories(name_en, icon)')
+        .in('id', eventBizIds)
+        .eq('status', 'active'), 'bizFromEvents')
+    : [];
 
   // ── Users — single pass ───────────────────────────────────────────────────
   const totalUsers = users.length;
@@ -216,18 +222,23 @@ router.get('/analytics/data', guard, async (req, res) => {
   const oneTimeUsers = Object.values(userConvoCount).filter(n => n === 1).length;
 
   // ── Business impressions — single pass ────────────────────────────────────
-  // Build lookup map from bizList once — replaces 4 separate maps + O(n²) find
+  // bizMap covers ALL businesses that appeared in events (from phase 2)
+  // merged with bizAllTime so all-time table is also covered.
   const bizMap = {};
-  bizList.forEach(b => {
-    bizMap[b.id] = {
-      name:    b.name,
-      tier:    b.listing_tier || 'free',
-      city:    b.city || '',
-      cat:     b.service_categories
-        ? `${b.service_categories.icon || ''} ${b.service_categories.name_en || ''}`.trim()
-        : '',
-      countAll: b.impression_count || 0,
-    };
+  const allBizRows = [...bizList, ...bizAllTime];
+  // dedupe — bizList (event businesses) wins on duplicates since it's more targeted
+  allBizRows.forEach(b => {
+    if (!bizMap[b.id]) { // first-write wins — bizList loaded first
+      bizMap[b.id] = {
+        name:     b.name,
+        tier:     b.listing_tier || 'free',
+        city:     b.city || '',
+        cat:      b.service_categories
+          ? `${b.service_categories.icon || ''} ${b.service_categories.name_en || ''}`.trim()
+          : '',
+        countAll: b.impression_count || 0,
+      };
+    }
   });
 
   const bizImprMap  = {};
@@ -260,7 +271,7 @@ router.get('/analytics/data', guard, async (req, res) => {
       count30d,
     }));
 
-  const topBizAllTime = bizList.slice(0, 15).map(b => ({
+  const topBizAllTime = bizAllTime.slice(0, 15).map(b => ({
     ...bizMap[b.id],
     id: b.id,
   }));
