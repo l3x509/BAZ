@@ -515,6 +515,142 @@ async function getPendingEventsCount() {
   return count || 0;
 }
 
+// ============================================================
+// CITY CLUSTERS
+// Ordered expansion rings for proximity search without coordinates.
+// Ring 0 = the city itself (handled by caller)
+// Ring 1 = immediate neighbors (~5-10 miles)
+// Ring 2 = broader area (~15-25 miles)
+// Add cities as Baz expands to new markets.
+// ============================================================
+const CITY_CLUSTERS = {
+  // ── Greater Boston / South Shore ──────────────────────────
+  randolph:         [['holbrook','stoughton','canton','milton'],         ['brockton','quincy','boston','dedham']],
+  holbrook:         [['randolph','stoughton','brockton','avon'],         ['canton','milton','quincy','easton']],
+  brockton:         [['stoughton','easton','avon','west bridgewater'],   ['randolph','holbrook','bridgewater','taunton']],
+  stoughton:        [['randolph','holbrook','canton','easton'],          ['brockton','dedham','norwood','avon']],
+  canton:           [['randolph','stoughton','norwood','dedham'],        ['milton','quincy','holbrook','westwood']],
+  milton:           [['boston','quincy','canton','randolph'],            ['dedham','norwood','holbrook','stoughton']],
+  boston:           [['dorchester','mattapan','roxbury','hyde park'],    ['randolph','milton','chelsea','quincy']],
+  dorchester:       [['boston','mattapan','roxbury','hyde park'],        ['randolph','milton','quincy','chelsea']],
+  mattapan:         [['boston','dorchester','hyde park','milton'],       ['randolph','stoughton','quincy','roslindale']],
+  roxbury:          [['boston','dorchester','mattapan','jamaica plain'], ['cambridge','somerville','chelsea']],
+  quincy:           [['boston','milton','randolph','braintree'],         ['holbrook','randolph','stoughton','weymouth']],
+  cambridge:        [['boston','somerville','medford','everett'],        ['malden','chelsea','watertown','waltham']],
+  somerville:       [['cambridge','boston','medford','everett'],         ['malden','chelsea','revere','winthrop']],
+  everett:          [['somerville','malden','medford','chelsea'],        ['boston','revere','winthrop','cambridge']],
+  malden:           [['everett','medford','somerville','revere'],        ['cambridge','chelsea','woburn','lynn']],
+  chelsea:          [['boston','everett','revere','winthrop'],           ['somerville','malden','cambridge']],
+  revere:           [['chelsea','winthrop','everett','malden'],          ['boston','somerville','lynn']],
+  lynn:             [['revere','malden','everett','chelsea'],            ['boston','somerville','medford','woburn']],
+  // ── Florida ────────────────────────────────────────────────
+  miami:            [['miami gardens','north miami','miramar'],          ['pompano beach','fort lauderdale','west palm beach']],
+  'miami gardens':  [['miami','north miami','miramar'],                  ['pompano beach','fort lauderdale']],
+  'north miami':    [['miami','miami gardens','miramar'],                ['pompano beach','fort lauderdale']],
+  miramar:          [['miami','miami gardens','pompano beach'],          ['fort lauderdale','west palm beach']],
+  // ── New York ───────────────────────────────────────────────
+  brooklyn:         [['bronx','queens','manhattan'],                     ['staten island','yonkers','mount vernon']],
+  bronx:            [['brooklyn','queens','manhattan','yonkers'],        ['mount vernon','new rochelle']],
+  queens:           [['brooklyn','bronx','manhattan'],                   ['staten island','yonkers']],
+  // ── Canada ─────────────────────────────────────────────────
+  montreal:         [['laval','longueuil'],                              []],
+};
+
+// Normalize cluster keys for lookup
+const CLUSTER_MAP = {};
+for (const [city, rings] of Object.entries(CITY_CLUSTERS)) {
+  CLUSTER_MAP[normalize(city)] = rings.map(ring => ring.map(normalize));
+}
+
+// ── searchWithCluster ─────────────────────────────────────────
+// Wraps searchBusinesses with city cluster expansion.
+// Expands outward ring by ring until PAGE_SIZE results are found.
+// Returns { results, citiesSearched } so find.js can show city labels
+// on results from expanded rings.
+async function searchWithCluster({
+  query, categorySlug, city, country,
+  limit = 5, offset = 0,
+  userCity = null, userCountry = null,
+}) {
+  const effectiveCity = city || userCity || null;
+
+  // No city → no cluster, search nationally as before
+  if (!effectiveCity) {
+    const { results, broadened, triedCity } = await searchBusinesses({
+      query, categorySlug, city: null, country, limit, offset, userCity: null, userCountry,
+    });
+    return { results, broadened, triedCity, citiesSearched: [] };
+  }
+
+  const normCity   = normalize(effectiveCity);
+  const rings      = CLUSTER_MAP[normCity] || [];
+  const collected  = [];
+  const seen       = new Set();
+  const citiesSearched = [effectiveCity];
+
+  // ── Ring 0: exact city ────────────────────────────────────
+  const ring0 = await searchBusinesses({
+    query, categorySlug,
+    city:      effectiveCity,
+    country,
+    limit:     limit,
+    offset:    0,
+    userCity:  null,
+    userCountry,
+  });
+
+  for (const b of ring0.results) {
+    if (!seen.has(b.id)) { seen.add(b.id); collected.push(b); }
+  }
+
+  // ── Expand rings until full ───────────────────────────────
+  for (const ring of rings) {
+    if (collected.length >= limit) break;
+    const needed = limit - collected.length;
+
+    for (const ringCity of ring) {
+      if (collected.length >= limit) break;
+
+      const ringResults = await searchBusinesses({
+        query, categorySlug,
+        city:      ringCity,
+        country,
+        limit:     needed,
+        offset:    0,
+        userCity:  null,
+        userCountry,
+      });
+
+      for (const b of ringResults.results) {
+        if (!seen.has(b.id)) {
+          seen.add(b.id);
+          collected.push({ ...b, _fromCity: ringCity }); // tag with source city
+          citiesSearched.push(ringCity);
+        }
+        if (collected.length >= limit) break;
+      }
+    }
+  }
+
+  // ── Sort: premium → pro → standard → free, then rating ───
+  const tierOrder = { premium: 0, pro: 1, standard: 2, free: 3 };
+  collected.sort((a, b) => {
+    const tDiff = (tierOrder[a.listing_tier || 'free'] ?? 3) - (tierOrder[b.listing_tier || 'free'] ?? 3);
+    if (tDiff !== 0) return tDiff;
+    return (b.avg_rating || 0) - (a.avg_rating || 0);
+  });
+
+  const broadened    = collected.some(b => b._fromCity);
+  const triedCity    = broadened ? effectiveCity : null;
+
+  return {
+    results:       collected.slice(0, limit),
+    broadened,
+    triedCity,
+    citiesSearched: [...new Set(citiesSearched)],
+  };
+}
+
 module.exports = {
   // Cache management
   loadCategoryCache,
@@ -538,6 +674,7 @@ module.exports = {
   resolveCategory,
   findBusinessByName,
   searchBusinesses,
+  searchWithCluster,
   getBusinessById,
   getCategories,
   // Bookings & Inquiries
