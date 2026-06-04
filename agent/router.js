@@ -574,7 +574,9 @@ async function handleCategory({ topic, user, message, lang, conversationId, conv
     return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
   }
 
-  const resolvedCity    = city    || user.location_city    || null;
+  // city = explicit from message only. user.location_city is soft preference (userCity).
+  // Never merge them — doing so hard-locks searches to the saved city.
+  const resolvedCity    = city    || null;
   const resolvedCountry = country || user.location_country || null;
 
   if (allOptions.length === 1) {
@@ -685,7 +687,8 @@ async function resolveServiceCategory({ pending, message, user, lang, conversati
   return await dispatch('find', {
     user, message, lang, conversationHistory: [],
     category: selected.slug,
-    city:     user.location_city    || null,
+    city:     null,                            // no explicit city from submenu selection
+    userCity: user.location_city    || null,   // soft preference
     country:  user.location_country || null,
     mode:     'find',
   });
@@ -716,7 +719,8 @@ async function resolvePendingMode({ pending, message, user, lang, conversationId
   await dispatch(selected.handler, {
     user, message, lang, conversationHistory: [],
     category: pending.category_slug,
-    city:     pending.city    || user.location_city    || null,
+    city:     pending.city    || null,         // only explicit city from original message
+    userCity: user.location_city    || null,   // soft preference
     country:  pending.country || user.location_country || null,
     mode:     selected.mode,
   });
