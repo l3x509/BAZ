@@ -9,48 +9,61 @@ const PAGE_SIZE = 5;
 // ============================================================
 // FIND HANDLER
 // ============================================================
-async function handle({ user, message, lang, conversationHistory, category, city, country, mode }) {
+async function handle({ user, message, lang, conversationHistory, category, city, userCity, country, mode }) {
   let conversation = null;
   try {
     conversation = await db.getActiveConversation(user.id);
     if (!conversation) conversation = await db.createConversation(user.id, user.whatsapp_id, 'find');
   } catch {}
 
-  const searchCity    = city    || user.location_city    || null;
+  // city    = explicit city from message (hard filter)
+  // userCity = saved location_city (soft preference, falls back to national)
+  const searchCity    = city    || null;
+  const searchUserCity = userCity || user.location_city || null;
   const searchCountry = country || user.location_country || null;
 
-  const businesses = await db.searchBusinesses({
+  const { results: businesses, broadened, triedCity } = await db.searchBusinesses({
     query:        message,
-    categorySlug: category     || null,
+    categorySlug: category      || null,
     city:         searchCity,
     country:      searchCountry,
     limit:        PAGE_SIZE,
     offset:       0,
-    userCity:     user.location_city    || null,
-    userCountry:  user.location_country || null,
+    userCity:     searchUserCity,
+    userCountry:  searchCountry,
   });
 
   // TWINZILE event (gated — off by default)
   await emit('search_performed', {
     user, conversation,
-    payload: { query: message, category, city: searchCity, country: searchCountry, result_count: businesses.length },
+    payload: { query: message, category, city: searchCity || searchUserCity, country: searchCountry, result_count: businesses.length },
   }).catch(() => {});
 
   if (!businesses.length) {
-    return sendNoResults({ user, lang, category, city: searchCity });
+    return sendNoResults({ user, lang, category, city: searchCity || searchUserCity });
+  }
+
+  // ── If we broadened past the requested city, show a soft note ─
+  // "Pa gen nan Randolph — men lòt biznis:"
+  // Never a dead end — users always see something.
+  if (broadened && triedCity) {
+    const note = {
+      ht: `📍 Pa gen biznis nan *${triedCity}* kounye a — men lòt ki disponib:\n`,
+      en: `📍 None in *${triedCity}* yet — here's what's available:\n`,
+      fr: `📍 Aucun résultat à *${triedCity}* — voici ce qui est disponible:\n`,
+    };
+    await wa.sendText(user.whatsapp_id, note[lang] || note.en);
   }
 
   // ── Save search state + result IDs ───────────────────────────
-  // last_result_ids enables number selection ("1" → show business #1)
-  // last_search enables "plis" pagination and city refinement
   try {
     await db.updateSessionState(user.id, {
       ...user.session_state,
       last_category:   category,
-      last_result_ids: businesses.map(b => b.id),   // ← enables number selection
+      last_result_ids: businesses.map(b => b.id),
       last_search: {
         categorySlug: category,
-        city:         searchCity,
+        city:         searchCity || searchUserCity,
         country:      searchCountry,
         query:        message,
         offset:       0,
@@ -60,10 +73,10 @@ async function handle({ user, message, lang, conversationHistory, category, city
 
   // ── Save to conversation context ─────────────────────────────
   if (conversation?.id) {
-    await db.updateConversation(conversation.id, {
+    db.updateConversation(conversation.id, {
       intent: 'find',
       context: {
-        last_search:  { categorySlug: category, city: searchCity },
+        last_search:  { categorySlug: category, city: searchCity || searchUserCity },
         last_results: businesses.map(b => b.id),
       },
     }).catch(() => {});
@@ -72,8 +85,7 @@ async function handle({ user, message, lang, conversationHistory, category, city
   const hasMore = businesses.length === PAGE_SIZE;
   await wa.sendBusinessResults(user.whatsapp_id, businesses, lang, hasMore);
 
-  // ── Log impressions — fire and forget, never blocks user ─────
-  // Runs AFTER message is sent so analytics never delays response
+  // ── Log impressions — fire and forget ────────────────────────
   businesses.forEach((b, i) => {
     db.logBusinessEvent({
       businessId:     b.id,
@@ -81,13 +93,14 @@ async function handle({ user, message, lang, conversationHistory, category, city
       userId:         user.id,
       searchQuery:    message,
       categorySlug:   category,
-      city:           searchCity,
+      city:           searchCity || searchUserCity,
       resultPosition: i + 1,
-    }).catch(() => {});
+    });
   });
 }
 
 // ── NO RESULTS ────────────────────────────────────────────────
+// Only shown when national broadening also found nothing.
 async function sendNoResults({ user, lang, category, city }) {
   const loc = city ? { ht: ` nan *${city}*`, en: ` in *${city}*`, fr: ` à *${city}*` }
                    : { ht: '', en: '', fr: '' };
@@ -100,9 +113,7 @@ async function sendNoResults({ user, lang, category, city }) {
   return wa.sendText(user.whatsapp_id, msg[lang] || msg.en);
 }
 
-// ── BUSINESS SELECTED (user typed "1", "2", etc.) ────────────
-// Called from router.js when user picks a result number.
-// Logs a contact_reveal event — the strongest intent signal we have.
+// ── BUSINESS SELECTED ─────────────────────────────────────────
 async function handleBusinessSelected({ user, businessId, lang, conversation = null }) {
   const business = await db.getBusinessById(businessId);
   if (!business) {
@@ -114,7 +125,6 @@ async function handleBusinessSelected({ user, businessId, lang, conversation = n
     return wa.sendText(user.whatsapp_id, err[lang] || err.en);
   }
 
-  // TWINZILE event (gated)
   await emit('business_viewed', {
     user, conversation,
     entityType: 'business',
@@ -126,13 +136,10 @@ async function handleBusinessSelected({ user, businessId, lang, conversation = n
 }
 
 // ── CONTACT BUSINESS ──────────────────────────────────────────
-// Called when user explicitly requests contact info.
-// Logs a contact_request event (stronger signal than contact_reveal).
 async function handleContactBusiness({ user, conversation = null, businessId, lang }) {
   const business = await db.getBusinessById(businessId);
   if (!business) return;
 
-  // Log as inquiry in DB
   await db.createInquiry({
     userId:     user.id,
     businessId: business.id,
@@ -149,10 +156,7 @@ async function handleContactBusiness({ user, conversation = null, businessId, la
 }
 
 // ── VENDOR STATS ──────────────────────────────────────────────
-// Triggered when a vendor WhatsApps "stats".
-// Shows them their business performance for the last 7 days.
 async function handleVendorStats({ user, lang }) {
-  // Find business owned by this user
   const { data: business } = await db.supabase
     .from('businesses')
     .select('id, name, impression_count, contact_count')
@@ -169,8 +173,7 @@ async function handleVendorStats({ user, lang }) {
     return wa.sendText(user.whatsapp_id, noB[lang] || noB.en);
   }
 
-  // Fetch 7-day stats from business_events
-  const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+  const since7d  = new Date(Date.now() - 7  * 86400000).toISOString();
   const since14d = new Date(Date.now() - 14 * 86400000).toISOString();
 
   const [events7d, events14d] = await Promise.all([
@@ -181,7 +184,6 @@ async function handleVendorStats({ user, lang }) {
   const impressions7d     = events7d.length;
   const impressions7dPrev = events14d.length;
 
-  // Top search queries
   const queryMap = {};
   events7d.filter(e => e.search_query).forEach(e => {
     const q = e.search_query.toLowerCase().trim();
@@ -193,7 +195,6 @@ async function handleVendorStats({ user, lang }) {
     .map(([q, n]) => `  • "${q}" — ${n}x`)
     .join('\n');
 
-  // Week-over-week trend
   const trend = impressions7dPrev > 0
     ? ` (${impressions7d >= impressions7dPrev ? '+' : ''}${Math.round((impressions7d - impressions7dPrev) / impressions7dPrev * 100)}% vs last week)`
     : '';
