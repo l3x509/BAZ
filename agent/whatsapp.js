@@ -89,8 +89,8 @@ async function sendPremiumSpotlight(to, business, lang) {
       const cityLine = [address, city].filter(Boolean).join(', ');
 
       const lines = [
-        `💎 *${name}*`,
-        cityLine ? `✅ Verifye · 📍 ${cityLine}` : '✅ Verifye',
+        `💎 *${name}* ✅`,
+        cityLine ? `📍 ${cityLine}` : null,
         phone   ? `📞 ${phone}`          : null,
         website ? `🌐 ${website}`        : null,
         waNum   ? `💬 wa.me/${waNum}`    : null,
@@ -104,7 +104,7 @@ async function sendPremiumSpotlight(to, business, lang) {
 
     // Placeholder — no premium business in this category/area
     const placeholder = {
-      ht: `💎 *[Biznis Paw La]*\n✅ Verifye · 📍 Vil Ou, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Lendi–Samdi 9AM–9PM\n${divider}\n_Ou Vle plas sa a? Ekri *JOIN*_`,
+      ht: `💎 *[Biznis Paw La]*\n✅ Verifye · 📍 Vil Ou, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Lendi–Samdi 9AM–9PM\n${divider}\n_Vle plas sa a? Ekri *JOIN*_`,
       en: `💎 *[Your Business Here]*\n✅ Verified · 📍 Your City, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Mon–Sat 9AM–9PM\n${divider}\n_Want this spot? Type *JOIN*_`,
       fr: `💎 *[Votre Entreprise Ici]*\n✅ Vérifié · 📍 Votre Ville, MA\n📞 (XXX) XXX-XXXX\n🌐 votresite.com\n🕐 Lun–Sam 9AM–9PM\n${divider}\n_Vous voulez cette place? Tapez *JOIN*_`,
     };
