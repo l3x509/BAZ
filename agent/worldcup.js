@@ -7,12 +7,14 @@ const { createClient } = require('@supabase/supabase-js');
 
 let _supabase = null;
 function getSupabase() {
-  if (!_supabase) {
-    _supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY
-    );
+  if (_supabase) return _supabase;
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    console.warn('[worldcup] Supabase env vars missing — PARI/tracking disabled');
+    return null;
   }
+  _supabase = createClient(url, key);
   return _supabase;
 }
 
@@ -164,7 +166,12 @@ const SHARE_LINE =
 
 function trackEngagement(waId) {
   if (!waId) return;
-  getSupabase().rpc('upsert_wc_engaged', { p_wa_id: waId }).catch(() => {});
+  try {
+    const sb = getSupabase();
+    if (!sb) return;
+    // .rpc() returns a Supabase query builder, not a native Promise — wrap it
+    Promise.resolve(sb.rpc('upsert_wc_engaged', { p_wa_id: waId })).catch(() => {});
+  } catch {}
 }
 
 // ─── RESPONSE BUILDERS ───────────────────────────────────────────────────────
