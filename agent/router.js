@@ -119,28 +119,66 @@ const EMOJI_MAP = {
 // (e.g. 'west bridgewater' matched before 'bridgewater').
 // ════════════════════════════════════════════════════════════
 const KNOWN_CITIES_RAW = [
-  // Greater Boston / South Shore
-  'boston', 'brockton', 'mattapan', 'dorchester', 'randolph',
-  'somerville', 'everett', 'malden', 'cambridge', 'stoughton',
-  'hyde park', 'roxbury', 'quincy', 'lynn', 'lowell',
-  'holbrook', 'west bridgewater', 'east bridgewater', 'bridgewater',
-  'canton', 'sharon', 'easton', 'avon', 'abington', 'whitman',
-  'hanover', 'norwood', 'westwood', 'dedham', 'milton',
-  'chelsea', 'winthrop', 'revere', 'medford', 'woburn',
-  'newton', 'brookline', 'waltham', 'watertown', 'framingham',
-  'marlborough', 'worcester', 'springfield', 'lawrence', 'haverhill',
-  // Florida
-  'miami', 'miami gardens', 'north miami', 'miramar', 'pompano beach',
-  'fort lauderdale', 'west palm beach', 'orlando', 'tampa',
-  // New York
+  // ── Greater Boston core ───────────────────────────────────
+  'boston', 'dorchester', 'mattapan', 'roxbury', 'hyde park',
+  'jamaica plain', 'roslindale', 'east boston', 'charlestown',
+  'fenway', 'west roxbury', 'allston', 'brighton',
+  // Inner suburbs
+  'cambridge', 'somerville', 'everett', 'malden', 'chelsea',
+  'revere', 'winthrop', 'medford', 'quincy', 'milton',
+  'brookline', 'newton', 'waltham', 'watertown', 'dedham',
+  'norwood', 'woburn', 'belmont', 'arlington', 'stoneham',
+  'braintree', 'weymouth', 'needham', 'westwood', 'sharon',
+  // South Shore — Haitian heartland
+  'randolph', 'holbrook', 'brockton', 'stoughton', 'canton',
+  'avon', 'easton', 'abington', 'west bridgewater', 'bridgewater',
+  'whitman', 'taunton', 'hanover', 'rockland', 'hanson',
+  'pembroke', 'duxbury', 'hingham', 'cohasset', 'scituate',
+  'east bridgewater', 'middleboro', 'raynham',
+  // MetroWest
+  'framingham', 'marlborough', 'natick', 'ashland', 'hopkinton',
+  'milford', 'northborough', 'southborough', 'hudson', 'shrewsbury',
+  'worcester', 'grafton', 'westborough', 'holliston',
+  // North Shore
+  'lynn', 'lowell', 'lawrence', 'haverhill', 'saugus',
+  'peabody', 'salem', 'swampscott', 'methuen', 'andover',
+  'north andover', 'amesbury', 'newburyport', 'beverly', 'gloucester',
+  // ── Florida ───────────────────────────────────────────────
+  'miami', 'miami gardens', 'north miami', 'north miami beach',
+  'hialeah', 'miramar', 'hollywood', 'fort lauderdale',
+  'pompano beach', 'deerfield beach', 'west palm beach',
+  'pembroke pines', 'hallandale beach', 'aventura',
+  'coral gables', 'south miami', 'doral', 'opa-locka',
+  'davie', 'plantation', 'sunrise', 'coral springs', 'margate',
+  'coconut creek', 'boca raton', 'boynton beach', 'delray beach',
+  'lake worth', 'riviera beach', 'palm beach gardens',
+  'orlando', 'kissimmee', 'tampa', 'st petersburg', 'clearwater',
+  'weston', 'wellington',
+  // ── New York metro ────────────────────────────────────────
   'new york', 'brooklyn', 'bronx', 'queens', 'manhattan',
-  'staten island', 'yonkers', 'mount vernon',
-  // Canada
-  'montreal', 'laval', 'longueuil',
-  // Haiti
-  'port-au-prince', 'pap', 'cap-haïtien', 'cap haitien',
-  'gonaïves', 'gonaives', 'les cayes', 'jacmel', 'pétion-ville',
-  'petion-ville', 'delmas', 'tabarre',
+  'staten island', 'yonkers', 'mount vernon', 'new rochelle',
+  'white plains', 'flushing', 'long island city',
+  'hempstead', 'freeport', 'valley stream', 'uniondale', 'elmont',
+  // New Jersey
+  'newark', 'irvington', 'east orange', 'orange', 'jersey city',
+  'elizabeth', 'hoboken', 'paterson', 'bloomfield', 'montclair',
+  'union city', 'bayonne', 'south orange', 'maplewood',
+  // Connecticut
+  'bridgeport', 'stamford', 'new haven', 'norwalk', 'stratford',
+  'milford', 'trumbull', 'fairfield', 'shelton', 'greenwich',
+  // ── Canada ────────────────────────────────────────────────
+  'montreal', 'laval', 'longueuil', 'brossard', 'saint-hubert',
+  'saint-leonard', 'montreal-nord', 'rivière-des-prairies',
+  'repentigny', 'terrebonne', 'blainville', 'boisbriand',
+  'rosemère', 'saint-eustache', 'mascouche', 'laprairie',
+  // ── Haiti ─────────────────────────────────────────────────
+  'port-au-prince', 'pap', 'pétionville', 'petion-ville',
+  'delmas', 'tabarre', 'carrefour', 'cité soleil',
+  'croix-des-bouquets', 'gressier', 'léogâne', 'kenscoff',
+  'cap-haïtien', 'cap haitien', 'limonade', 'milot',
+  'gonaïves', 'gonaives', 'saint-marc', 'ennery',
+  'les cayes', 'jacmel', 'marigot', 'aquin',
+  'grand-goâve', 'petit-goâve', 'miragoane',
 ];
 
 // Normalize all cities and sort longest first
@@ -439,6 +477,43 @@ async function route({ user, message, lang, conversationId }) {
     // ── VENDOR STATS ──────────────────────────────────────────
     if (text === 'stats' || text === 'estatistik') {
       return await findHandler.handleVendorStats({ user, lang });
+    }
+
+    // ── JOIN — premium slot inquiry ───────────────────────────
+    if (text === 'join') {
+      const join = {
+        ht: `💎 *Vle yon plas Premium sou Baz?*
+
+Biznis Premium yo:
+• 👑 Parèt an premye nan tout rechèch
+• 💬 Kati espesyal ak deskripsyon ou
+• ✅ Badge verifye
+• 📊 Estatistik chak semèn
+
+*$19/mwa* — Ekri oswa rele:
+📞 Kontakte Baz: bazht.com`,
+        en: `💎 *Want a Premium spot on Baz?*
+
+Premium businesses get:
+• 👑 First position in every search
+• 💬 Featured card with your description
+• ✅ Verified badge
+• 📊 Weekly impression stats
+
+*$19/month* — Reach us at:
+📞 bazht.com`,
+        fr: `💎 *Vous voulez une place Premium sur Baz?*
+
+Les entreprises Premium obtiennent:
+• 👑 Première position dans chaque recherche
+• 💬 Carte vedette avec votre description
+• ✅ Badge vérifié
+• 📊 Statistiques hebdomadaires
+
+*19$/mois* — Contactez-nous:
+📞 bazht.com`,
+      };
+      return sendText(user.whatsapp_id, join[lang] || join.en);
     }
 
     // ── EMOJI MAP ─────────────────────────────────────────────
@@ -800,7 +875,7 @@ async function showMoreResults(user, lang) {
       return sendText(user.whatsapp_id, noMore[lang] || noMore.en);
     }
     await db.updateSessionState(user.id, { ...sessionState, last_search: { ...lastSearch, offset: newOffset } });
-    return wa.sendBusinessResults(user.whatsapp_id, businesses, lang, businesses.length === 5);
+    return wa.sendBusinessResults(user.whatsapp_id, businesses, lang, businesses.length === 5, false);
   } catch (err) {
     console.error('[router] showMoreResults error:', err.message);
     return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
