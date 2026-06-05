@@ -31,11 +31,15 @@ async function loadCategoryCache() {
       .eq('is_active', true);
 
     if (error) throw error;
+    if (!data?.length) {
+      console.warn('[db] loadCategoryCache: no categories returned — DB may be empty');
+      return;
+    }
 
     _bySlug    = new Map();
     _byKeyword = new Map();
 
-    for (const cat of (data || [])) {
+    for (const cat of data) {
       _bySlug.set(cat.slug, cat);
 
       // Index every keyword (all languages) normalized
@@ -45,16 +49,44 @@ async function loadCategoryCache() {
           _byKeyword.set(normalize(kw), cat);
         }
       }
-      // Also index the slug itself and name_en
+      // Always index slug + name_en regardless of keywords column
       _byKeyword.set(normalize(cat.slug),    cat);
       _byKeyword.set(normalize(cat.name_en), cat);
+      // Also index name_ht and name_fr if present
+      if (cat.name_ht) _byKeyword.set(normalize(cat.name_ht), cat);
+      if (cat.name_fr) _byKeyword.set(normalize(cat.name_fr), cat);
     }
 
     _cacheLoaded = true;
     console.log(`[db] Category cache loaded: ${_bySlug.size} categories, ${_byKeyword.size} keywords`);
   } catch (err) {
     console.error('[db] loadCategoryCache failed:', err.message);
-    // Non-fatal — resolveCategory falls back to DB query
+    // Retry once after 5 seconds — handles Railway cold start DB connection delay
+    setTimeout(async () => {
+      console.log('[db] Retrying category cache load...');
+      try {
+        const { data } = await supabase.from('service_categories').select('*').eq('is_active', true);
+        if (data?.length) {
+          _bySlug    = new Map();
+          _byKeyword = new Map();
+          for (const cat of data) {
+            _bySlug.set(cat.slug, cat);
+            const kws = cat.keywords || {};
+            for (const lang of ['en', 'ht', 'fr']) {
+              for (const kw of (kws[lang] || [])) _byKeyword.set(normalize(kw), cat);
+            }
+            _byKeyword.set(normalize(cat.slug), cat);
+            _byKeyword.set(normalize(cat.name_en), cat);
+            if (cat.name_ht) _byKeyword.set(normalize(cat.name_ht), cat);
+            if (cat.name_fr) _byKeyword.set(normalize(cat.name_fr), cat);
+          }
+          _cacheLoaded = true;
+          console.log(`[db] Category cache loaded on retry: ${_bySlug.size} categories`);
+        }
+      } catch (retryErr) {
+        console.error('[db] Category cache retry failed:', retryErr.message);
+      }
+    }, 5000);
   }
 }
 
@@ -604,8 +636,7 @@ async function searchWithCluster({
 
   const freeCount = () => collected.filter(b => !PAID_TIERS.has(b.listing_tier)).length;
 
-  // ── Ring 0: home city ─────────────────────────────────────
-  // Fetch enough to cover the requested page plus buffer for paid listings.
+  // ── Ring 0: home city ────────────────────────────────────
   const ring0 = await searchBusinesses({
     query, categorySlug, city: effectiveCity, country,
     limit: target + limit,
@@ -616,30 +647,36 @@ async function searchWithCluster({
     if (!seen.has(b.id)) { seen.add(b.id); collected.push(b); }
   }
 
-  // ── Expand rings ──────────────────────────────────────────
-  // Keep expanding until we have enough to cover this page, OR
-  // we've checked ring 1 for paid listings.
-  for (let ringIdx = 0; ringIdx < rings.length; ringIdx++) {
+  // ── Expand rings in parallel — fast, timeout-safe ─────────
+  // Ring cities within the same ring run simultaneously.
+  // Stop after ring 1 if we have enough results (ring 2 only
+  // runs when ring 1 still comes up short).
+  for (let ringIdx = 0; ringIdx < Math.min(rings.length, 2); ringIdx++) {
     const ring = rings[ringIdx];
 
-    // Stop once we have enough free results for this page (but always check ring 1)
+    // Already have enough free results and checked ring 1 — stop
     if (freeCount() >= target && ringIdx > 0) break;
+    if (!ring?.length) continue;
 
-    for (const ringCity of ring) {
-      const ringResults = await searchBusinesses({
+    // Run all cities in this ring simultaneously
+    const ringResultSets = await Promise.all(
+      ring.map(ringCity => searchBusinesses({
         query, categorySlug, city: ringCity, country,
         limit: target,
         offset: 0, userCity: null, userCountry,
-      });
+      }))
+    );
 
-      for (const b of ringResults.results) {
+    ringResultSets.forEach((res, i) => {
+      const ringCity = ring[i];
+      for (const b of res.results) {
         if (!seen.has(b.id)) {
           seen.add(b.id);
           collected.push({ ...b, _fromCity: ringCity });
           if (!citiesSearched.includes(ringCity)) citiesSearched.push(ringCity);
         }
       }
-    }
+    });
   }
 
   // ── Sort: premium → pro → standard → free, then rating ───
