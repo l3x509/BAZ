@@ -177,15 +177,14 @@ function handleAyiti(waId) {
     : `Gwoup stage fini!\n\n`;
 
   return (
-    `🇭🇹 *VIV AYITI!*\n` +
+    `🇭🇹 *GRENADYE ALASO!*\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    `Premye fwa depi *52 an!*\n` +
-    `Les Grenadiers yo la! 💪\n\n` +
+    ` Nou la 💪 apre *52 an!*\n` +
     urgency +
-    `Ekri *MATCH* — orè match yo\n` +
-    `Ekri *WATCH PARTY* — kote gade match la\n` +
-    `Ekri *TRANSPÒ* — transpò pou ale nan match\n` +
-    `Ekri *PARI* — fè pwediksyon pou tout 3 match\n\n` +
+    `Ekri *MATCH* — pou orè match yo\n` +
+    `Ekri *WATCH PARTY* — pou jwenn kote w ka gade match yo\n` +
+    `Ekri *TRANSPÒ* — pou jwenn transpò pou ale nan match\n` +
+    `Ekri *PARI* — fè prediksyon pou 3 match yo\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
     SHARE_LINE
   );
@@ -216,19 +215,17 @@ function handleGrenadye(waId) {
     ? isMatchDay(next.dateISO)
       ? `Match la *JODI A* — ${next.time} — ${next.venue}!`
       : `${daysFromNow(next.dateISO)} pou match *${next.opponent}* la!`
-    : `Les Grenadiers yo kontinye goumen!`;
+    : `Grenadye yo nan batay!`;
 
   const msg1 =
     `🇭🇹🔥 *GRENADYE ALASO!*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
-    `Nan 1803, zanse nou yo te kraze chen lan.\n` +
-    `Nan 2026, Les Grenadiers ap pote drapo a.\n\n` +
+    `1803, zanset nou yo te kraze chen lan.\n` +
+    `2026, Grenadye yo ap flote drapo nou wo.\n\n` +
     `${countdownLine}\n\n` +
-    `Ayiti. Premye repiblik nwa lib nan istwa.\n` +
-    `Premye fwa nan World Cup depi *52 an.*\n` +
-    `*Sa pa chans — sa destin.*\n\n` +
+    `*Sa pa chans — se destin.*\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    `Ekri *PARI* pou fè pwediksyon pou tout 3 match\n\n` +
+    `Ekri *PARI* pou fè prediksyon pou 3 match yo\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
     SHARE_LINE;
   return [msg1, formatSchedule()];
