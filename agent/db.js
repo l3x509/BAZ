@@ -598,13 +598,17 @@ async function searchWithCluster({
   const citiesSearched = [effectiveCity];
   const PAID_TIERS     = new Set(['premium', 'pro']);
 
-  // Helper: count only free/standard in collected (paid never block expansion)
+  // Target: collect enough to cover offset + limit (for pagination).
+  // e.g. page 2 (offset 5, limit 5) needs at least 10 collected.
+  const target = offset + limit;
+
   const freeCount = () => collected.filter(b => !PAID_TIERS.has(b.listing_tier)).length;
 
   // ── Ring 0: home city ─────────────────────────────────────
+  // Fetch enough to cover the requested page plus buffer for paid listings.
   const ring0 = await searchBusinesses({
     query, categorySlug, city: effectiveCity, country,
-    limit: limit * 2, // fetch extra so we don't miss paid listings
+    limit: target + limit,
     offset: 0, userCity: null, userCountry,
   });
 
@@ -613,19 +617,18 @@ async function searchWithCluster({
   }
 
   // ── Expand rings ──────────────────────────────────────────
-  // Stop only when we have enough FREE/STANDARD results.
-  // Always continue if there might be PAID listings in outer rings.
+  // Keep expanding until we have enough to cover this page, OR
+  // we've checked ring 1 for paid listings.
   for (let ringIdx = 0; ringIdx < rings.length; ringIdx++) {
     const ring = rings[ringIdx];
 
-    // Stop expanding free slots once full
-    // But always check ring 1 for paid businesses regardless
-    if (freeCount() >= limit && ringIdx > 0) break;
+    // Stop once we have enough free results for this page (but always check ring 1)
+    if (freeCount() >= target && ringIdx > 0) break;
 
     for (const ringCity of ring) {
       const ringResults = await searchBusinesses({
         query, categorySlug, city: ringCity, country,
-        limit: limit,
+        limit: target,
         offset: 0, userCity: null, userCountry,
       });
 
@@ -650,8 +653,9 @@ async function searchWithCluster({
   const broadened = collected.some(b => b._fromCity);
   const triedCity = broadened ? effectiveCity : null;
 
+  // Slice for the requested page using offset
   return {
-    results:       collected.slice(0, limit),
+    results:       collected.slice(offset, offset + limit),
     broadened,
     triedCity,
     citiesSearched: [...new Set(citiesSearched)],
