@@ -405,10 +405,10 @@ async function route({ user, message, lang, conversationId }) {
     }
 
     // ── WORLD CUP ─────────────────────────────────────────────
-    // Stateless fast path — no DB, no Claude. Returns string or string[].
-    // Sits before EMOJI MAP and KEYWORD PRE-ROUTER so "ayiti", "match",
-    // "grenadye alaso" etc. never fall through to business searches.
-    const wcResponse = handleWorldCupKeywords(message);
+    // Fast path — no Claude call. Returns string, string[], or Promise.
+    // Promise check required: PREDIKSYON handlers are async (Supabase reads).
+    const wcRaw      = handleWorldCupKeywords(message, user.whatsapp_id);
+    const wcResponse = (wcRaw instanceof Promise) ? await wcRaw : wcRaw;
     if (wcResponse !== null) {
       if (Array.isArray(wcResponse)) {
         await sendText(user.whatsapp_id, wcResponse[0]);
