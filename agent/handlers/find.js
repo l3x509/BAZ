@@ -1,6 +1,7 @@
 'use strict';
 
 const db = require('../db');
+const { normalize } = require('../utils/normalize');
 const wa = require('../whatsapp');
 const { emit } = require('../utils/events');
 
