@@ -12,6 +12,7 @@ const eventsHandler  = require('./handlers/events');
 const payHandler     = require('./handlers/pay');
 const onboardHandler = require('./handlers/onboard');
 const statusHandler  = require('./handlers/status');
+const { handleWorldCupKeywords } = require('./worldcup');
 
 const HANDLERS = {
   find: findHandler,
@@ -113,10 +114,6 @@ const EMOJI_MAP = {
 
 // ════════════════════════════════════════════════════════════
 // CITY EXTRACTOR
-// All city names normalized at startup. extractCity() normalizes
-// input before matching — works with/without accents.
-// Sorted by length descending to avoid partial matches
-// (e.g. 'west bridgewater' matched before 'bridgewater').
 // ════════════════════════════════════════════════════════════
 const KNOWN_CITIES_RAW = [
   // ── Greater Boston core ───────────────────────────────────
@@ -181,7 +178,6 @@ const KNOWN_CITIES_RAW = [
   'grand-goâve', 'petit-goâve', 'miragoane',
 ];
 
-// Normalize all cities and sort longest first
 const KNOWN_CITIES = normalizeList(KNOWN_CITIES_RAW)
   .sort((a, b) => b.length - a.length);
 
@@ -270,16 +266,16 @@ const SERVICE_OPTIONS = [
 ];
 
 const ALL_CATEGORIES_TEXT = {
-  ht: `📋 *Tout kategori Baz:*\n\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n🛒 *komisyon* — grocery\n👗 *rad* — fashion\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n⛪ *legliz* — church & community\n🛠️ *sèvis* — plumber, electrician & more\n📋 *lòt* — other services\n\n_Ekri non kategori a pou jwenn biznis._`,
-  en: `📋 *All Baz categories:*\n\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n🛒 *grocery* — grocery store\n👗 *fashion* — clothing\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n⛪ *church* — church & community\n🛠️ *services* — plumber, electrician & more\n📋 *other* — other services\n\n_Type any category to find businesses._`,
-  fr: `📋 *Toutes les catégories Baz:*\n\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n🛒 *épicerie* — épicerie\n👗 *mode* — vêtements\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n⛪ *église* — église & communauté\n🛠️ *services* — plombier, électricien & plus\n📋 *autre* — autres services\n\n_Tapez un nom de catégorie pour trouver des entreprises._`,
+  ht: `📋 *Tout kategori Baz:*\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n🛒 *komisyon* — grocery\n👗 *rad* — fashion\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n⛪ *legliz* — church & community\n🛠️ *sèvis* — plumber, electrician & more\n📋 *lòt* — other services\n\n_Ekri non kategori a pou jwenn biznis._`,
+  en: `📋 *All Baz categories:*\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n🛒 *grocery* — grocery store\n👗 *fashion* — clothing\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n⛪ *church* — church & community\n🛠️ *services* — plumber, electrician & more\n📋 *other* — other services\n\n_Type any category to find businesses._`,
+  fr: `📋 *Toutes les catégories Baz:*\n\n⚽ *AYITI* — Coupe du Monde 2026 🇭🇹\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n🛒 *épicerie* — épicerie\n👗 *mode* — vêtements\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n⛪ *église* — église & communauté\n🛠️ *services* — plombier, électricien & plus\n📋 *autre* — autres services\n\n_Tapez un nom de catégorie pour trouver des entreprises._`,
 };
 
 const COPY = {
   greeting: {
-    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n🛠️ *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
-    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n🛠️ *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
-    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n🛠️ *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n🛠️ *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n🛠️ *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
+    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n⚽ *AYITI* — Coupe du Monde 2026 🇭🇹\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n🛠️ *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
   },
   unknown: {
     ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, avoka, cheve...)\n• *menu* — pou retounen nan meni prensipal\n• *tout* — pou wè tout kategori yo\n\n_Konsèy: ajoute vil la — "cheve Boston" oswa "avoka Brockton"_`,
@@ -311,9 +307,6 @@ function sanitize(raw) {
 
 // ════════════════════════════════════════════════════════════
 // PROCESS MESSAGE
-// Parallel fetch of user + conversation — saves ~200ms per message.
-// logMessage is fire-and-forget — user response not blocked by it.
-// conversationHistory is lazy — only loaded before Claude calls.
 // ════════════════════════════════════════════════════════════
 async function processMessage({ waId, displayName, messageId, messageType, content }) {
   const message = sanitize(content);
@@ -325,7 +318,6 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
   }
 
   try {
-    // ── Parallel: user + conversation fetched simultaneously ──
     const [user, existingConvo] = await Promise.all([
       db.getOrCreateUser(waId, displayName),
       db.getConversationByWaId(waId),
@@ -333,7 +325,6 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
 
     let lang = user.language || 'en';
 
-    // ── Area code → city (new users only) ────────────────────
     if (!user.location_city) {
       const inferredCity = inferCityFromPhone(waId);
       if (inferredCity) {
@@ -343,14 +334,11 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
       }
     }
 
-    // ── Ensure conversation exists ────────────────────────────
     let conversation = existingConvo;
     if (!conversation) {
       try { conversation = await db.createConversation(user.id, waId); } catch {}
     }
 
-    // ── Log inbound message (fire-and-forget) ─────────────────
-    // User response is NOT blocked by this write.
     if (conversation?.id) {
       db.logMessage({
         conversationId: conversation.id,
@@ -362,7 +350,6 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
       });
     }
 
-    // Pass conversationId so route() can lazy-load history if needed
     await route({ user, message, lang, conversationId: conversation?.id || null });
 
   } catch (err) {
@@ -372,14 +359,12 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
 
 // ════════════════════════════════════════════════════════════
 // ROUTE
-// text     = message lowercased (for nav checks)
-// normText = message fully normalized (for keyword/city lookups)
 // ════════════════════════════════════════════════════════════
 async function route({ user, message, lang, conversationId }) {
   try {
     const sessionState = user.session_state || {};
     const text         = message.trim().toLowerCase();
-    const normText     = normalize(message); // diacritics stripped, lowercased
+    const normText     = normalize(message);
 
     // ── ADMIN EVENT APPROVAL ──────────────────────────────────
     const ADMIN_WA = process.env.ADMIN_WHATSAPP;
@@ -419,6 +404,25 @@ async function route({ user, message, lang, conversationId }) {
       return sendText(user.whatsapp_id, ALL_CATEGORIES_TEXT[lang] || ALL_CATEGORIES_TEXT.en);
     }
 
+    // ── WORLD CUP ─────────────────────────────────────────────
+    // Stateless fast path — no DB, no Claude. Returns string or string[].
+    // Sits before EMOJI MAP and KEYWORD PRE-ROUTER so "ayiti", "match",
+    // "grenadye alaso" etc. never fall through to business searches.
+    const wcResponse = handleWorldCupKeywords(message);
+    if (wcResponse !== null) {
+      if (Array.isArray(wcResponse)) {
+        await sendText(user.whatsapp_id, wcResponse[0]);
+        for (let i = 1; i < wcResponse.length; i++) {
+          await new Promise(r => setTimeout(r, 1500));
+          await sendText(user.whatsapp_id, wcResponse[i]);
+        }
+      } else {
+        await sendText(user.whatsapp_id, wcResponse);
+      }
+      return;
+    }
+    // ── END WORLD CUP ─────────────────────────────────────────
+
     // ── OPTIONS ───────────────────────────────────────────────
     if (text === 'options' && sessionState.last_category) {
       await clearPendingMode(user);
@@ -431,7 +435,7 @@ async function route({ user, message, lang, conversationId }) {
 
     // ── MORE RESULTS ──────────────────────────────────────────
     const moreWords = new Set(['more', 'plis', 'plus', 'next']);
-    const SEARCH_TTL = 30 * 60 * 1000; // 30 min — last_search expires
+    const SEARCH_TTL = 30 * 60 * 1000;
     const lastSearchFresh = sessionState.last_search &&
       (Date.now() - (sessionState.last_search.ts || 0)) < SEARCH_TTL;
     if (moreWords.has(text) && lastSearchFresh) {
@@ -461,7 +465,6 @@ async function route({ user, message, lang, conversationId }) {
       'evènman', 'fèt', 'aktivite', 'events', 'event', 'événements',
       'ki pase', "what's on", 'whats on', 'eveman', 'evenman',
     ]);
-    // Normalize event words for matching
     const EVENT_NORMS = new Set([...EVENT_WORDS_RAW].map(normalize));
     if (EVENT_NORMS.has(normText) || [...EVENT_NORMS].some(w => normText.startsWith(w + ' '))) {
       const evCity = extractCity(normText) || user.location_city || null;
@@ -517,7 +520,6 @@ Les entreprises Premium obtiennent:
     }
 
     // ── EMOJI MAP ─────────────────────────────────────────────
-    // Check before name lookup — emojis are never business names
     if (EMOJI_MAP[message.trim()]) {
       const slug = EMOJI_MAP[message.trim()];
       console.log(`[router] Emoji: ${message.trim()} → ${slug}`);
@@ -528,7 +530,6 @@ Les entreprises Premium obtiennent:
     }
 
     // ── KEYWORD PRE-ROUTER ────────────────────────────────────
-    // Uses normalized text — works with/without diacritics
     const preRouted = preRoute(normText);
     if (preRouted) {
       console.log(`[router] Keyword: "${normText}" → ${preRouted.slug}${preRouted.city ? ' / ' + preRouted.city : ''}`);
@@ -536,9 +537,6 @@ Les entreprises Premium obtiennent:
         topic: {
           type: 'category',
           category_slug: preRouted.slug,
-          // Only pass city if explicitly in the message.
-          // Saved location_city goes in as userCity (soft preference).
-          // This prevents "avoka" from being locked to Randolph forever.
           city:    preRouted.city || null,
           country: null,
         },
@@ -547,10 +545,6 @@ Les entreprises Premium obtiennent:
     }
 
     // ── BUSINESS NAME LOOKUP ──────────────────────────────────
-    // Only runs after keyword pre-router fails — avoids DB call
-    // for the ~80% of messages that are category keywords.
-    // Skipped if input is a known city AND user has an active search
-    // (that means they're refining by city, not looking up a business name).
     const inputIsCity = extractCity(normText) === normText;
     const hasActiveSearch = lastSearchFresh;
     if (normText.length >= 3 && !(inputIsCity && hasActiveSearch)) {
@@ -577,7 +571,7 @@ Les entreprises Premium obtiennent:
     }
 
     // ── BUSINESS SELECTION — number after results ─────────────
-    const RESULT_TTL = 10 * 60 * 1000; // 10 min — result IDs expire
+    const RESULT_TTL = 10 * 60 * 1000;
     const resultsFresh = sessionState.last_result_ids?.length &&
       (Date.now() - (sessionState.last_result_ts || 0)) < RESULT_TTL;
     if (resultsFresh) {
@@ -597,8 +591,6 @@ Les entreprises Premium obtiennent:
     }
 
     // ── DETECT TOPIC (Claude) ─────────────────────────────────
-    // Only reaches here for natural language queries.
-    // Lazy-load conversation history only now — no cost for keyword hits.
     let conversationHistory = [];
     try {
       if (conversationId) conversationHistory = await db.getConversationHistory(conversationId);
@@ -614,17 +606,11 @@ Les entreprises Premium obtiennent:
       return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
     }
 
-    // Auto-update language (multi-word messages only)
     const isSubstantive = message.trim().split(/\s+/).length >= 2;
     if (topic.lang && topic.lang !== lang && isSubstantive) {
       db.updateUser(user.id, { language: topic.lang }).catch(() => {});
       lang = topic.lang;
     }
-
-    // NOTE: We intentionally do NOT save city from search queries to user.location_city.
-    // "Food in Holbrook" means search Holbrook now — not that the user lives in Holbrook.
-    // City is only saved from area code inference on first message (see processMessage above).
-    // Pass detected city into this search only, via topic.city.
 
     switch (topic.type) {
       case 'category':
@@ -662,8 +648,6 @@ async function handleCategory({ topic, user, message, lang, conversationId, conv
     return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
   }
 
-  // city = explicit from message only. user.location_city is soft preference (userCity).
-  // Never merge them — doing so hard-locks searches to the saved city.
   const resolvedCity    = city    || null;
   const resolvedCountry = country || user.location_country || null;
 
@@ -672,8 +656,8 @@ async function handleCategory({ topic, user, message, lang, conversationId, conv
     return dispatch(allOptions[0].handler, {
       user, message, lang, conversationHistory,
       category:  category_slug,
-      city:      resolvedCity,               // explicit city from message
-      userCity:  user.location_city || null, // saved city — soft preference
+      city:      resolvedCity,
+      userCity:  user.location_city || null,
       country:   resolvedCountry,
       mode:      allOptions[0].mode,
     });
@@ -714,15 +698,9 @@ async function refineSearchWithCity(user, city, lang) {
 
     if (broadened && triedCity) {
       const note = {
-        ht: `📍 Pa gen rezilta nan *${triedCity}* — men lòt biznis:
-
-`,
-        en: `📍 None in *${triedCity}* yet — showing nearby results:
-
-`,
-        fr: `📍 Aucun résultat à *${triedCity}* — voici d'autres résultats:
-
-`,
+        ht: `📍 Pa gen rezilta nan *${triedCity}* — men lòt biznis:\n\n`,
+        en: `📍 None in *${triedCity}* yet — showing nearby results:\n\n`,
+        fr: `📍 Aucun résultat à *${triedCity}* — voici d'autres résultats:\n\n`,
       };
       await sendText(user.whatsapp_id, note[lang] || note.en);
     }
@@ -775,8 +753,8 @@ async function resolveServiceCategory({ pending, message, user, lang, conversati
   return await dispatch('find', {
     user, message, lang, conversationHistory: [],
     category: selected.slug,
-    city:     null,                            // no explicit city from submenu selection
-    userCity: user.location_city    || null,   // soft preference
+    city:     null,
+    userCity: user.location_city    || null,
     country:  user.location_country || null,
     mode:     'find',
   });
@@ -807,8 +785,8 @@ async function resolvePendingMode({ pending, message, user, lang, conversationId
   await dispatch(selected.handler, {
     user, message, lang, conversationHistory: [],
     category: pending.category_slug,
-    city:     pending.city    || null,         // only explicit city from original message
-    userCity: user.location_city    || null,   // soft preference
+    city:     pending.city    || null,
+    userCity: user.location_city    || null,
     country:  pending.country || user.location_country || null,
     mode:     selected.mode,
   });
