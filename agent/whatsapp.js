@@ -253,4 +253,33 @@ async function sendBusinessDetail(to, business, lang) {
   return sendText(to, lines);
 }
 
-module.exports = { sendText, sendButtons, sendList, sendLanguageSelection, sendBusinessResults, sendBusinessDetail, markAsRead };
+module.exports = { sendText, sendButtons, sendList, sendLanguageSelection, sendBusinessResults, sendBusinessDetail, markAsRead, sendGreeting };
+
+// ── GREETING WITH QUICK REPLY BUTTONS ────────────────────────
+// Replaces plain text greeting. Three tappable buttons cover
+// the most common entry points — IDs map directly to router keywords.
+async function sendGreeting(to, lang) {
+  const body = {
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen!\n\nEkri sa w bezwen oswa chwazi:`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone!\n\nTell me what you need or tap below:`,
+    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien!\n\nDites-moi ce dont vous avez besoin:`,
+  };
+  const buttons = {
+    ht: [
+      { id: 'manje', title: '🍲 Manje' },
+      { id: 'ayiti', title: '⚽ Ayiti WC' },
+      { id: 'tout',  title: '📋 Tout kategori' },
+    ],
+    en: [
+      { id: 'food',  title: '🍲 Food' },
+      { id: 'ayiti', title: '⚽ World Cup' },
+      { id: 'all',   title: '📋 All Categories' },
+    ],
+    fr: [
+      { id: 'restaurant', title: '🍲 Restaurant' },
+      { id: 'ayiti',      title: '⚽ Coupe du Monde' },
+      { id: 'tout',       title: '📋 Toutes catégories' },
+    ],
+  };
+  return sendButtons(to, body[lang] || body.en, buttons[lang] || buttons.en);
+}
