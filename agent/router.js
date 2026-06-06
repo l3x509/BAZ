@@ -351,7 +351,7 @@ async function route({ user, message, lang, conversationId }) {
     if (backWords.has(text)) {
       await clearPendingMode(user);
       await clearServiceCategory(user);
-      return sendText(user.whatsapp_id, COPY.greeting[lang] || COPY.greeting.en);
+      return wa.sendGreeting(user.whatsapp_id, lang);
     }
 
     // ── ALL CATEGORIES ────────────────────────────────────────
@@ -549,7 +549,7 @@ async function route({ user, message, lang, conversationId }) {
       case 'status':
         return await statusHandler.handle({ user, message, lang, conversationHistory });
       case 'greeting':
-        return sendText(user.whatsapp_id, COPY.greeting[lang] || COPY.greeting.en);
+        return wa.sendGreeting(user.whatsapp_id, lang);
       default:
         return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
     }
