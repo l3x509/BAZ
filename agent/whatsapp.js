@@ -192,8 +192,6 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
     await sendPremiumSpotlight(to, premium, lang);
   }
   const headers    = { ht: '📋 *Rezilta yo:*', en: '📋 *Results:*', fr: '📋 *Résultats:*' };
-  const morePrompt = { ht: '_Ekri *plis* pou wè plis · *menu* pou retounen_', en: '_Type *more* for more results · *menu* to go back_', fr: '_Tapez *plus* pour voir plus · *menu* pour revenir_' };
-  const noMorePrompt = { ht: '_Ekri *menu* pou retounen nan meni prensipal_', en: '_Type *menu* to go back to main menu_', fr: '_Tapez *menu* pour revenir au menu principal_' };
   const lines = [headers[lang] || headers.en, ''];
   sorted.forEach((b, i) => {
     const tier     = getTier(b);
@@ -222,8 +220,22 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
     }
     lines.push('');
   });
-  lines.push(hasMore ? (morePrompt[lang] || morePrompt.en) : (noMorePrompt[lang] || noMorePrompt.en));
-  return sendText(to, lines.join('\n'));
+  // Send results text
+  await sendText(to, lines.join('\n'));
+
+  // Navigation buttons — replaces having to type "plis" or "menu"
+  await new Promise(r => setTimeout(r, 800));
+  try {
+    const navBody = {
+      ht: hasMore ? 'Ou vle wè plis rezilta?' : 'Ou wè tout rezilta yo.',
+      en: hasMore ? 'Want to see more results?' : "You've seen all results.",
+      fr: hasMore ? 'Voir plus de résultats?' : 'Résultats terminés.',
+    };
+    const navButtons = hasMore
+      ? [{ id: 'plis', title: '📋 Plis rezilta' }, { id: 'menu', title: '🏠 Menu' }]
+      : [{ id: 'menu', title: '🏠 Retounen menu' }];
+    await sendButtons(to, navBody[lang] || navBody.en, navButtons);
+  } catch {}
 }
 
 async function sendBusinessDetail(to, business, lang) {
@@ -266,18 +278,18 @@ async function sendGreeting(to, lang) {
   };
   const buttons = {
     ht: [
-      { id: 'manje', title: '🍲 Manje' },
-      { id: 'ayiti', title: '⚽ Ayiti WC' },
+      { id: 'manje', title: '🍲 Manje / Food' },
+      { id: 'ayiti', title: '⚽ Grenadye' },
       { id: 'tout',  title: '📋 Tout kategori' },
     ],
     en: [
       { id: 'food',  title: '🍲 Food' },
-      { id: 'ayiti', title: '⚽ World Cup' },
+      { id: 'ayiti', title: '⚽ Grenadye' },
       { id: 'all',   title: '📋 All Categories' },
     ],
     fr: [
       { id: 'restaurant', title: '🍲 Restaurant' },
-      { id: 'ayiti',      title: '⚽ Coupe du Monde' },
+      { id: 'ayiti',      title: '⚽ Grenadye' },
       { id: 'tout',       title: '📋 Toutes catégories' },
     ],
   };
