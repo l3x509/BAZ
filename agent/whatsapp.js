@@ -47,20 +47,89 @@ async function markAsRead(messageId) {
 }
 
 async function sendButtons(to, bodyText, buttons) {
-  const options = buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n');
-  return sendText(to, `${bodyText}\n\n${options}\n\n_Reply with the number of your choice._`);
+  // Max 3 buttons for WhatsApp interactive button messages
+  if (!buttons?.length) return;
+  try {
+    await axios.post(
+      API_URL,
+      {
+        messaging_product: 'whatsapp',
+        to:   to.replace(/[^0-9]/g, ''),
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text: bodyText },
+          action: {
+            buttons: buttons.slice(0, 3).map((b, i) => ({
+              type:  'reply',
+              reply: { id: b.id || String(i + 1), title: b.title.slice(0, 20) },
+            })),
+          },
+        },
+      },
+      { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+  } catch {
+    // Fallback to plain text if interactive fails
+    const options = buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n');
+    return sendText(to, `${bodyText}\n\n${options}\n\n_Reply with the number of your choice._`);
+  }
 }
 
 async function sendList(to, bodyText, buttonLabel, sections) {
-  const lines = [bodyText, ''];
-  sections.forEach(s => {
-    if (s.title) lines.push(`*${s.title}*`);
-    s.rows.forEach((r, i) => {
-      lines.push(`${i + 1}. ${r.title}${r.description ? ` — ${r.description}` : ''}`);
+  // WhatsApp interactive list — max 10 rows total, row titles max 24 chars
+  const totalRows = sections.reduce((n, s) => n + (s.rows?.length || 0), 0);
+
+  if (totalRows > 10) {
+    // Fallback to plain text for large lists
+    const lines = [bodyText, ''];
+    sections.forEach(s => {
+      if (s.title) lines.push(`*${s.title}*`);
+      s.rows.forEach((r, i) => {
+        lines.push(`${i + 1}. ${r.title}${r.description ? ` — ${r.description}` : ''}`);
+      });
     });
-  });
-  lines.push('\n_Reply with the number of your choice._');
-  return sendText(to, lines.join('\n'));
+    lines.push('\n_Reply with the number of your choice._');
+    return sendText(to, lines.join('\n'));
+  }
+
+  try {
+    await axios.post(
+      API_URL,
+      {
+        messaging_product: 'whatsapp',
+        to:   to.replace(/[^0-9]/g, ''),
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: { text: bodyText },
+          action: {
+            button: (buttonLabel || 'View Options').slice(0, 20),
+            sections: sections.map(s => ({
+              title: (s.title || '').slice(0, 24),
+              rows:  (s.rows || []).map(r => ({
+                id:          (r.id || r.title).slice(0, 200),
+                title:       r.title.slice(0, 24),
+                description: (r.description || '').slice(0, 72),
+              })),
+            })),
+          },
+        },
+      },
+      { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+  } catch {
+    // Fallback to plain text
+    const lines = [bodyText, ''];
+    sections.forEach(s => {
+      if (s.title) lines.push(`*${s.title}*`);
+      s.rows.forEach((r, i) => {
+        lines.push(`${i + 1}. ${r.title}${r.description ? ` — ${r.description}` : ''}`);
+      });
+    });
+    lines.push('\n_Reply with the number of your choice._');
+    return sendText(to, lines.join('\n'));
+  }
 }
 
 async function sendLanguageSelection(to) {
