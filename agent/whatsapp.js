@@ -3,32 +3,29 @@
 const axios = require('axios');
 
 // ============================================================
-// META CLOUD API — WHATSAPP SENDER
-// Replaces Twilio. Same exported interface — nothing else changes.
+// TWILIO WHATSAPP SENDER
 // ============================================================
 
-const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
-const TOKEN           = process.env.WHATSAPP_TOKEN;
-const API_URL         = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
+const ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID;
+const AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN;
+const FROM_NUMBER  = process.env.TWILIO_WHATSAPP_NUMBER?.startsWith('whatsapp:')
+  ? process.env.TWILIO_WHATSAPP_NUMBER
+  : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
+const API_URL      = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`;
 
-// ── CORE SEND ─────────────────────────────────────────────────
-// to = raw waId (digits only, no +, no whatsapp: prefix)
 async function sendText(to, body) {
-  if (!body || !body.trim()) return; // never send empty messages
+  if (!body || !body.trim()) return;
   try {
     await axios.post(
       API_URL,
+      new URLSearchParams({
+        From: FROM_NUMBER,
+        To:   `whatsapp:${to}`,
+        Body: body.trim(),
+      }),
       {
-        messaging_product: 'whatsapp',
-        to:                to.replace(/[^0-9]/g, ''), // strip any +, spaces, etc.
-        type:              'text',
-        text:              { body: body.trim(), preview_url: false },
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${TOKEN}`,
-          'Content-Type':  'application/json',
-        },
+        auth:    { username: ACCOUNT_SID, password: AUTH_TOKEN },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       }
     );
   } catch (err) {
@@ -38,35 +35,11 @@ async function sendText(to, body) {
   }
 }
 
-// ── MARK AS READ ──────────────────────────────────────────────
-// Shows blue checkmarks to the user. Fire-and-forget.
-async function markAsRead(messageId) {
-  if (!messageId) return;
-  try {
-    await axios.post(
-      API_URL,
-      {
-        messaging_product: 'whatsapp',
-        status:            'read',
-        message_id:        messageId,
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${TOKEN}`,
-          'Content-Type':  'application/json',
-        },
-      }
-    );
-  } catch {}  // non-fatal
-}
-
-// ── BUTTONS → numbered plain text ────────────────────────────
 async function sendButtons(to, bodyText, buttons) {
   const options = buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n');
   return sendText(to, `${bodyText}\n\n${options}\n\n_Reply with the number of your choice._`);
 }
 
-// ── LIST → numbered plain text ────────────────────────────────
 async function sendList(to, bodyText, buttonLabel, sections) {
   const lines = [bodyText, ''];
   sections.forEach(s => {
@@ -79,37 +52,30 @@ async function sendList(to, bodyText, buttonLabel, sections) {
   return sendText(to, lines.join('\n'));
 }
 
-// ── LANGUAGE SELECTION ────────────────────────────────────────
 async function sendLanguageSelection(to) {
   return sendText(to,
     '👋 Welcome to Baz!\n\n1. 🇭🇹 Kreyòl — type *lang_ht*\n2. 🇺🇸 English — type *lang_en*\n3. 🇫🇷 Français — type *lang_fr*'
   );
 }
 
-// ── TIER HELPER ───────────────────────────────────────────────
 function getTier(b) {
   return (b && b.listing_tier) ? b.listing_tier : 'free';
 }
 
-// ── PREMIUM SPOTLIGHT ─────────────────────────────────────────
-// Sent as a separate bubble before results.
-// ALWAYS wrapped in try/catch — a spotlight failure must NEVER
-// crash the search results. It's a display enhancement only.
-// business = null → show placeholder to drive upgrades.
 async function sendPremiumSpotlight(to, business, lang) {
   try {
     const divider = '──────────────────────';
 
     if (business) {
-      const name    = business.name        || 'Business';
-      const city    = business.city        || '';
-      const address = business.address     || '';
-      const phone   = business.phone       || null;
-      const website = business.website     || null;
-      const desc    = business.description || null;
-      const hours   = (business.meta && business.meta.hours) ? business.meta.hours : null;
-      const waRaw   = business.whatsapp    || null;
-      const waNum   = waRaw ? waRaw.replace(/[^0-9]/g, '') : null;
+      const name     = business.name        || 'Business';
+      const city     = business.city        || '';
+      const address  = business.address     || '';
+      const phone    = business.phone       || null;
+      const website  = business.website     || null;
+      const desc     = business.description || null;
+      const hours    = (business.meta && business.meta.hours) ? business.meta.hours : null;
+      const waRaw    = business.whatsapp    || null;
+      const waNum    = waRaw ? waRaw.replace(/[^0-9]/g, '') : null;
       const cityLine = [address, city].filter(Boolean).join(', ');
 
       const lines = [
@@ -126,7 +92,6 @@ async function sendPremiumSpotlight(to, business, lang) {
       return await sendText(to, lines);
     }
 
-    // Placeholder — no premium business in this category/area
     const placeholder = {
       ht: `💎 *[Biznis Paw La]*\n✅ Verifye · 📍 Vil Ou, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Lendi–Samdi 9AM–9PM\n${divider}\n_Vle plas sa a? Ekri *JOIN*_`,
       en: `💎 *[Your Business Here]*\n✅ Verified · 📍 Your City, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Mon–Sat 9AM–9PM\n${divider}\n_Want this spot? Type *JOIN*_`,
@@ -140,7 +105,6 @@ async function sendPremiumSpotlight(to, business, lang) {
   }
 }
 
-// ── BUSINESS RESULTS ─────────────────────────────────────────
 async function sendBusinessResults(to, businesses, lang, hasMore = false, showSpotlight = true) {
   if (!businesses?.length) return null;
 
@@ -211,7 +175,6 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
   return sendText(to, lines.join('\n'));
 }
 
-// ── BUSINESS DETAIL ───────────────────────────────────────────
 async function sendBusinessDetail(to, business, lang) {
   if (!business) return;
 
@@ -254,5 +217,4 @@ module.exports = {
   sendLanguageSelection,
   sendBusinessResults,
   sendBusinessDetail,
-  markAsRead,
 };
