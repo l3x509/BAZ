@@ -3,29 +3,32 @@
 const axios = require('axios');
 
 // ============================================================
-// TWILIO WHATSAPP SENDER
+// META CLOUD API — WHATSAPP SENDER
+// Replaces Twilio. Same exported interface — nothing else changes.
 // ============================================================
 
-const ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID;
-const AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN;
-const FROM_NUMBER  = process.env.TWILIO_WHATSAPP_NUMBER?.startsWith('whatsapp:')
-  ? process.env.TWILIO_WHATSAPP_NUMBER
-  : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
-const API_URL      = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const TOKEN           = process.env.WHATSAPP_TOKEN;
+const API_URL         = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
 
+// ── CORE SEND ─────────────────────────────────────────────────
+// to = raw waId (digits only, no +, no whatsapp: prefix)
 async function sendText(to, body) {
   if (!body || !body.trim()) return; // never send empty messages
   try {
     await axios.post(
       API_URL,
-      new URLSearchParams({
-        From: FROM_NUMBER,
-        To:   `whatsapp:${to}`,
-        Body: body.trim(),
-      }),
       {
-        auth:    { username: ACCOUNT_SID, password: AUTH_TOKEN },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        messaging_product: 'whatsapp',
+        to:                to.replace(/[^0-9]/g, ''), // strip any +, spaces, etc.
+        type:              'text',
+        text:              { body: body.trim(), preview_url: false },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`,
+          'Content-Type':  'application/json',
+        },
       }
     );
   } catch (err) {
@@ -33,6 +36,28 @@ async function sendText(to, body) {
     console.error('[whatsapp] sendText error:', JSON.stringify(detail));
     throw err;
   }
+}
+
+// ── MARK AS READ ──────────────────────────────────────────────
+// Shows blue checkmarks to the user. Fire-and-forget.
+async function markAsRead(messageId) {
+  if (!messageId) return;
+  try {
+    await axios.post(
+      API_URL,
+      {
+        messaging_product: 'whatsapp',
+        status:            'read',
+        message_id:        messageId,
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`,
+          'Content-Type':  'application/json',
+        },
+      }
+    );
+  } catch {}  // non-fatal
 }
 
 // ── BUTTONS → numbered plain text ────────────────────────────
@@ -76,7 +101,6 @@ async function sendPremiumSpotlight(to, business, lang) {
     const divider = '──────────────────────';
 
     if (business) {
-      // Safe field extraction — every field guarded against null
       const name    = business.name        || 'Business';
       const city    = business.city        || '';
       const address = business.address     || '';
@@ -91,12 +115,12 @@ async function sendPremiumSpotlight(to, business, lang) {
       const lines = [
         `💎 *${name}* ✅`,
         cityLine ? `📍 ${cityLine}` : null,
-        phone   ? `📞 ${phone}`          : null,
-        website ? `🌐 ${website}`        : null,
-        waNum   ? `💬 wa.me/${waNum}`    : null,
-        hours   ? `🕐 ${hours}`          : null,
+        phone    ? `📞 ${phone}`    : null,
+        website  ? `🌐 ${website}`  : null,
+        waNum    ? `💬 wa.me/${waNum}` : null,
+        hours    ? `🕐 ${hours}`    : null,
         divider,
-        desc    ? `_${desc}_`            : null,
+        desc     ? `_${desc}_`      : null,
       ].filter(Boolean).join('\n');
 
       return await sendText(to, lines);
@@ -112,7 +136,6 @@ async function sendPremiumSpotlight(to, business, lang) {
     return await sendText(to, placeholder[lang] || placeholder.en);
 
   } catch (err) {
-    // Spotlight failure is non-fatal — log and continue
     console.warn('[whatsapp] sendPremiumSpotlight failed (non-fatal):', err.message);
   }
 }
@@ -121,7 +144,6 @@ async function sendPremiumSpotlight(to, business, lang) {
 async function sendBusinessResults(to, businesses, lang, hasMore = false, showSpotlight = true) {
   if (!businesses?.length) return null;
 
-  // Sort by tier: premium → pro → standard → free, then rating
   const tierOrder = { premium: 0, pro: 1, standard: 2, free: 3 };
   const sorted = [...businesses].sort((a, b) => {
     const tDiff = (tierOrder[getTier(a)] ?? 3) - (tierOrder[getTier(b)] ?? 3);
@@ -129,13 +151,11 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
     return (b.avg_rating || 0) - (a.avg_rating || 0);
   });
 
-  // Send premium spotlight (page 1 only) — non-fatal if it fails
   if (showSpotlight) {
     const premium = sorted.find(b => getTier(b) === 'premium') || null;
     await sendPremiumSpotlight(to, premium, lang);
   }
 
-  // Build results list — this ALWAYS sends regardless of spotlight
   const headers = {
     ht: '📋 *Rezilta yo:*',
     en: '📋 *Results:*',
@@ -177,18 +197,16 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
       if (b.address) lines.push(`   🏠 ${b.address}`);
       if (b.phone)   lines.push(`   📞 ${b.phone}`);
     } else {
-      // Free — name + phone only
       lines.push(`${i + 1}. ${b.name}`);
       if (b.phone) lines.push(`   📞 ${b.phone}`);
     }
-
     lines.push('');
   });
 
-  const footer = hasMore
+  lines.push(hasMore
     ? (morePrompt[lang]   || morePrompt.en)
-    : (noMorePrompt[lang] || noMorePrompt.en);
-  lines.push(footer);
+    : (noMorePrompt[lang] || noMorePrompt.en)
+  );
 
   return sendText(to, lines.join('\n'));
 }
@@ -197,29 +215,29 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
 async function sendBusinessDetail(to, business, lang) {
   if (!business) return;
 
-  const cat     = business.service_categories;
-  const icon    = cat?.icon    || '🏢';
-  const catName = lang === 'ht' ? cat?.name_ht
-                : lang === 'fr' ? cat?.name_fr
-                : cat?.name_en;
-  const hours   = (business.meta && business.meta.hours) ? business.meta.hours : null;
-  const waNum   = business.whatsapp?.replace(/[^0-9]/g, '');
+  const cat      = business.service_categories;
+  const icon     = cat?.icon    || '🏢';
+  const catName  = lang === 'ht' ? cat?.name_ht
+                 : lang === 'fr' ? cat?.name_fr
+                 : cat?.name_en;
+  const hours    = (business.meta && business.meta.hours) ? business.meta.hours : null;
+  const waNum    = business.whatsapp?.replace(/[^0-9]/g, '');
   const cityLine = [business.address, business.city].filter(Boolean).join(', ');
 
   const lines = [
     `${icon} *${business.name}*`,
-    catName    ? `_${catName}_`                          : null,
+    catName  ? `_${catName}_` : null,
     '',
     business.description || null,
     '',
-    cityLine   ? `📍 ${cityLine}`                        : null,
-    business.phone   ? `📞 ${business.phone}`            : null,
-    waNum            ? `💬 wa.me/${waNum}`               : null,
-    business.website ? `🌐 ${business.website}`          : null,
-    hours            ? `🕐 ${hours}`                     : null,
+    cityLine           ? `📍 ${cityLine}`                              : null,
+    business.phone     ? `📞 ${business.phone}`                        : null,
+    waNum              ? `💬 wa.me/${waNum}`                           : null,
+    business.website   ? `🌐 ${business.website}`                      : null,
+    hours              ? `🕐 ${hours}`                                 : null,
     business.avg_rating > 0
       ? `⭐ ${business.avg_rating} (${business.review_count} reviews)` : null,
-    business.is_verified ? '✅ Verified business'         : null,
+    business.is_verified ? '✅ Verified business'                       : null,
     '',
     lang === 'ht' ? '_Ekri *menu* pou retounen_'
     : lang === 'fr' ? '_Tapez *menu* pour revenir_'
@@ -236,4 +254,5 @@ module.exports = {
   sendLanguageSelection,
   sendBusinessResults,
   sendBusinessDetail,
+  markAsRead,
 };
