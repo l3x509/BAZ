@@ -1,80 +1,47 @@
 'use strict';
 
+const twilio         = require('twilio');
 const { processMessage } = require('./router');
-const { markAsRead }     = require('./whatsapp');
 
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
+const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
 
-// ── GET /webhook — Meta verification challenge ────────────────
-function handleVerification(req, res) {
-  const mode      = req.query['hub.mode'];
-  const token     = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-
-  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    console.log('[webhook] Meta verification successful');
-    return res.status(200).send(challenge);
+// ── TWILIO SIGNATURE VALIDATION ───────────────────────────────
+// Rejects anything not genuinely from Twilio's servers.
+function validateTwilioSignature(req, res, next) {
+  const signature = req.headers['x-twilio-signature'] || '';
+  const url       = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  const valid     = twilio.validateRequest(AUTH_TOKEN, signature, url, req.body);
+  if (!valid) {
+    console.warn('[webhook] Invalid Twilio signature — rejected');
+    return res.status(403).type('text/xml').send('<Response></Response>');
   }
-
-  console.warn('[webhook] Meta verification failed — token mismatch');
-  return res.sendStatus(403);
+  next();
 }
 
-// ── POST /webhook — Inbound messages ─────────────────────────
-function handleWebhook(req, res) {
-  res.sendStatus(200);
+// ── INBOUND MESSAGE HANDLER ───────────────────────────────────
+// Twilio sends form-encoded POST. Must always return TwiML XML.
+async function handleWebhook(req, res) {
+  // Respond immediately with empty TwiML — Twilio requires this.
+  // Actual response sent via REST API in whatsapp.js.
+  res.type('text/xml').send('<Response></Response>');
 
   try {
-    const body = req.body;
-    if (body?.object !== 'whatsapp_business_account') return;
+    const waId        = (req.body.From || '').replace('whatsapp:', '');
+    const displayName = req.body.ProfileName || '';
+    const messageId   = req.body.MessageSid  || '';
+    const messageType = req.body.MediaUrl0   ? 'image' : 'text';
+    const content     = req.body.Body        || '';
 
-    for (const entry of (body.entry || [])) {
-      for (const change of (entry.changes || [])) {
-        if (change.field !== 'messages') continue;
+    if (!waId) return;
 
-        const value    = change.value || {};
-        const messages = value.messages || [];
-        const contacts = value.contacts || [];
+    console.log(`[webhook] ${new Date().toISOString()} | from=${waId} type=${messageType} body="${content.slice(0, 60)}"`);
 
-        if (!messages.length) continue;
+    await processMessage({ waId, displayName, messageId, messageType, content });
 
-        for (const msg of messages) {
-          const messageType = msg.type || 'text';
-          let content = '';
-
-          if (messageType === 'text') {
-            content = msg.text?.body || '';
-          } else if (messageType === 'interactive') {
-            content = msg.interactive?.button_reply?.title
-                   || msg.interactive?.list_reply?.title
-                   || '';
-          }
-
-          const contact     = contacts.find(c => c.wa_id === msg.from) || contacts[0] || {};
-          const waId        = msg.from;
-          const displayName = contact.profile?.name || '';
-          const messageId   = msg.id;
-
-          if (!waId) continue;
-
-          console.log(`[webhook] ${new Date().toISOString()} | from=${waId} type=${messageType} body="${content.slice(0, 60)}"`);
-
-          markAsRead(messageId).catch(() => {});
-
-          processMessage({ waId, displayName, messageId, messageType, content })
-            .catch(err => console.error('[webhook] processMessage error:', err.message));
-        }
-      }
-    }
   } catch (err) {
-    console.error('[webhook] parse error:', err.message);
+    console.error('[webhook] error:', err.message, err.stack);
   }
 }
 
-// ── PASSTHROUGH ───────────────────────────────────────────────
-// validateTwilioSignature is still imported by the current server.js.
-// This no-op keeps server.js working until it's updated to the new version.
-// Safe to remove once server.js is updated.
-function validateTwilioSignature(req, res, next) { next(); }
-
-module.exports = { handleWebhook, handleVerification, validateTwilioSignature };
+module.exports = { handleWebhook, validateTwilioSignature };
