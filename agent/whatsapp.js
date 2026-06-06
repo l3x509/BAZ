@@ -3,29 +3,29 @@
 const axios = require('axios');
 
 // ============================================================
-// TWILIO WHATSAPP SENDER
+// META CLOUD API — WHATSAPP SENDER
 // ============================================================
 
-const ACCOUNT_SID  = process.env.TWILIO_ACCOUNT_SID;
-const AUTH_TOKEN   = process.env.TWILIO_AUTH_TOKEN;
-const FROM_NUMBER  = process.env.TWILIO_WHATSAPP_NUMBER?.startsWith('whatsapp:')
-  ? process.env.TWILIO_WHATSAPP_NUMBER
-  : `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`;
-const API_URL      = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`;
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const TOKEN           = process.env.WHATSAPP_TOKEN;
+const API_URL         = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
 
 async function sendText(to, body) {
   if (!body || !body.trim()) return;
   try {
     await axios.post(
       API_URL,
-      new URLSearchParams({
-        From: FROM_NUMBER,
-        To:   `whatsapp:${to}`,
-        Body: body.trim(),
-      }),
       {
-        auth:    { username: ACCOUNT_SID, password: AUTH_TOKEN },
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        messaging_product: 'whatsapp',
+        to:                to.replace(/[^0-9]/g, ''),
+        type:              'text',
+        text:              { body: body.trim(), preview_url: false },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`,
+          'Content-Type':  'application/json',
+        },
       }
     );
   } catch (err) {
@@ -33,6 +33,17 @@ async function sendText(to, body) {
     console.error('[whatsapp] sendText error:', JSON.stringify(detail));
     throw err;
   }
+}
+
+async function markAsRead(messageId) {
+  if (!messageId) return;
+  try {
+    await axios.post(
+      API_URL,
+      { messaging_product: 'whatsapp', status: 'read', message_id: messageId },
+      { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } }
+    );
+  } catch {}
 }
 
 async function sendButtons(to, bodyText, buttons) {
@@ -65,7 +76,6 @@ function getTier(b) {
 async function sendPremiumSpotlight(to, business, lang) {
   try {
     const divider = '──────────────────────';
-
     if (business) {
       const name     = business.name        || 'Business';
       const city     = business.city        || '';
@@ -77,7 +87,6 @@ async function sendPremiumSpotlight(to, business, lang) {
       const waRaw    = business.whatsapp    || null;
       const waNum    = waRaw ? waRaw.replace(/[^0-9]/g, '') : null;
       const cityLine = [address, city].filter(Boolean).join(', ');
-
       const lines = [
         `💎 *${name}* ✅`,
         cityLine ? `📍 ${cityLine}` : null,
@@ -88,18 +97,14 @@ async function sendPremiumSpotlight(to, business, lang) {
         divider,
         desc     ? `_${desc}_`      : null,
       ].filter(Boolean).join('\n');
-
       return await sendText(to, lines);
     }
-
     const placeholder = {
       ht: `💎 *[Biznis Paw La]*\n✅ Verifye · 📍 Vil Ou, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Lendi–Samdi 9AM–9PM\n${divider}\n_Vle plas sa a? Ekri *JOIN*_`,
       en: `💎 *[Your Business Here]*\n✅ Verified · 📍 Your City, MA\n📞 (XXX) XXX-XXXX\n🌐 yourwebsite.com\n🕐 Mon–Sat 9AM–9PM\n${divider}\n_Want this spot? Type *JOIN*_`,
       fr: `💎 *[Votre Entreprise Ici]*\n✅ Vérifié · 📍 Votre Ville, MA\n📞 (XXX) XXX-XXXX\n🌐 votresite.com\n🕐 Lun–Sam 9AM–9PM\n${divider}\n_Vous voulez cette place? Tapez *JOIN*_`,
     };
-
     return await sendText(to, placeholder[lang] || placeholder.en);
-
   } catch (err) {
     console.warn('[whatsapp] sendPremiumSpotlight failed (non-fatal):', err.message);
   }
@@ -107,44 +112,26 @@ async function sendPremiumSpotlight(to, business, lang) {
 
 async function sendBusinessResults(to, businesses, lang, hasMore = false, showSpotlight = true) {
   if (!businesses?.length) return null;
-
   const tierOrder = { premium: 0, pro: 1, standard: 2, free: 3 };
   const sorted = [...businesses].sort((a, b) => {
     const tDiff = (tierOrder[getTier(a)] ?? 3) - (tierOrder[getTier(b)] ?? 3);
     if (tDiff !== 0) return tDiff;
     return (b.avg_rating || 0) - (a.avg_rating || 0);
   });
-
   if (showSpotlight) {
     const premium = sorted.find(b => getTier(b) === 'premium') || null;
     await sendPremiumSpotlight(to, premium, lang);
   }
-
-  const headers = {
-    ht: '📋 *Rezilta yo:*',
-    en: '📋 *Results:*',
-    fr: '📋 *Résultats:*',
-  };
-  const morePrompt = {
-    ht: '_Ekri *plis* pou wè plis · *menu* pou retounen_',
-    en: '_Type *more* for more results · *menu* to go back_',
-    fr: '_Tapez *plus* pour voir plus · *menu* pour revenir_',
-  };
-  const noMorePrompt = {
-    ht: '_Ekri *menu* pou retounen nan meni prensipal_',
-    en: '_Type *menu* to go back to main menu_',
-    fr: '_Tapez *menu* pour revenir au menu principal_',
-  };
-
+  const headers    = { ht: '📋 *Rezilta yo:*', en: '📋 *Results:*', fr: '📋 *Résultats:*' };
+  const morePrompt = { ht: '_Ekri *plis* pou wè plis · *menu* pou retounen_', en: '_Type *more* for more results · *menu* to go back_', fr: '_Tapez *plus* pour voir plus · *menu* pour revenir_' };
+  const noMorePrompt = { ht: '_Ekri *menu* pou retounen nan meni prensipal_', en: '_Type *menu* to go back to main menu_', fr: '_Tapez *menu* pour revenir au menu principal_' };
   const lines = [headers[lang] || headers.en, ''];
-
   sorted.forEach((b, i) => {
     const tier     = getTier(b);
     const verified = b.is_verified ? ' ✅' : '';
     const rating   = b.avg_rating > 0 ? ` ⭐${b.avg_rating}` : '';
     const cityLine = [b.address, b.city].filter(Boolean).join(', ');
     const waNum    = b.whatsapp?.replace(/[^0-9]/g, '');
-
     if (tier === 'premium') {
       lines.push(`${i + 1}. 👑 *${b.name}*${verified}${rating} _[Featured]_`);
       if (b.address) lines.push(`   📍 ${b.address}`);
@@ -166,55 +153,35 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
     }
     lines.push('');
   });
-
-  lines.push(hasMore
-    ? (morePrompt[lang]   || morePrompt.en)
-    : (noMorePrompt[lang] || noMorePrompt.en)
-  );
-
+  lines.push(hasMore ? (morePrompt[lang] || morePrompt.en) : (noMorePrompt[lang] || noMorePrompt.en));
   return sendText(to, lines.join('\n'));
 }
 
 async function sendBusinessDetail(to, business, lang) {
   if (!business) return;
-
   const cat      = business.service_categories;
-  const icon     = cat?.icon    || '🏢';
-  const catName  = lang === 'ht' ? cat?.name_ht
-                 : lang === 'fr' ? cat?.name_fr
-                 : cat?.name_en;
+  const icon     = cat?.icon || '🏢';
+  const catName  = lang === 'ht' ? cat?.name_ht : lang === 'fr' ? cat?.name_fr : cat?.name_en;
   const hours    = (business.meta && business.meta.hours) ? business.meta.hours : null;
   const waNum    = business.whatsapp?.replace(/[^0-9]/g, '');
   const cityLine = [business.address, business.city].filter(Boolean).join(', ');
-
   const lines = [
     `${icon} *${business.name}*`,
-    catName  ? `_${catName}_` : null,
+    catName ? `_${catName}_` : null,
     '',
     business.description || null,
     '',
-    cityLine           ? `📍 ${cityLine}`                              : null,
-    business.phone     ? `📞 ${business.phone}`                        : null,
-    waNum              ? `💬 wa.me/${waNum}`                           : null,
-    business.website   ? `🌐 ${business.website}`                      : null,
-    hours              ? `🕐 ${hours}`                                 : null,
-    business.avg_rating > 0
-      ? `⭐ ${business.avg_rating} (${business.review_count} reviews)` : null,
-    business.is_verified ? '✅ Verified business'                       : null,
+    cityLine           ? `📍 ${cityLine}`   : null,
+    business.phone     ? `📞 ${business.phone}` : null,
+    waNum              ? `💬 wa.me/${waNum}` : null,
+    business.website   ? `🌐 ${business.website}` : null,
+    hours              ? `🕐 ${hours}`      : null,
+    business.avg_rating > 0 ? `⭐ ${business.avg_rating} (${business.review_count} reviews)` : null,
+    business.is_verified ? '✅ Verified business' : null,
     '',
-    lang === 'ht' ? '_Ekri *menu* pou retounen_'
-    : lang === 'fr' ? '_Tapez *menu* pour revenir_'
-    : '_Type *menu* to go back_',
+    lang === 'ht' ? '_Ekri *menu* pou retounen_' : lang === 'fr' ? '_Tapez *menu* pour revenir_' : '_Type *menu* to go back_',
   ].filter(Boolean).join('\n');
-
   return sendText(to, lines);
 }
 
-module.exports = {
-  sendText,
-  sendButtons,
-  sendList,
-  sendLanguageSelection,
-  sendBusinessResults,
-  sendBusinessDetail,
-};
+module.exports = { sendText, sendButtons, sendList, sendLanguageSelection, sendBusinessResults, sendBusinessDetail, markAsRead };
