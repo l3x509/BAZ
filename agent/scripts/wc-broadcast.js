@@ -1,21 +1,21 @@
 #!/usr/bin/env node
 // agent/scripts/wc-broadcast.js
-// Run manually after each Haiti match to send personalized results to all WC users.
+// Post-match broadcast via Meta Cloud API.
+// Run manually after each Haiti match.
 //
 // Usage:
 //   node scripts/wc-broadcast.js <match_date> <ayiti_score> <opponent_score>
 //
 // Examples:
-//   node scripts/wc-broadcast.js 2026-06-13 2 1   (Haiti beat Scotland 2-1)
-//   node scripts/wc-broadcast.js 2026-06-19 1 1   (Drew with Brazil)
-//   node scripts/wc-broadcast.js 2026-06-24 0 2   (Lost to Morocco)
+//   node scripts/wc-broadcast.js 2026-06-13 2 1
+//   node scripts/wc-broadcast.js 2026-06-19 1 1
+//   node scripts/wc-broadcast.js 2026-06-24 0 2
 
 'use strict';
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
-const twilio    = require('twilio');
-const { createClient } = require('@supabase/supabase-js');
+const axios = require('axios');
 const {
   getPredictorsForMatch,
   getAllEngagedUsers,
@@ -24,11 +24,10 @@ const {
   formatStandings,
 } = require('../worldcup');
 
-const client   = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-
-const FROM_NUMBER = `whatsapp:+${process.env.BAZ_NUMBER || '14155238886'}`;
-const DELAY_MS    = 1200; // stay well under Twilio rate limits
+const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
+const TOKEN           = process.env.WHATSAPP_TOKEN;
+const API_URL         = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
+const DELAY_MS        = 1200; // stay well under Meta rate limits
 
 // ─── CLI ARGS ────────────────────────────────────────────────────────────────
 
@@ -46,8 +45,39 @@ const matchInfo     = HAITI_SCHEDULE.find(g => g.dateISO === matchDate);
 
 if (!matchInfo) {
   console.error(`Unknown match date: ${matchDate}`);
-  console.error('Valid dates: 2026-06-13, 2026-06-19, 2026-06-24');
+  console.error('Valid: 2026-06-13 | 2026-06-19 | 2026-06-24');
   process.exit(1);
+}
+
+// ─── META SEND HELPER ────────────────────────────────────────────────────────
+
+async function send(waId, body) {
+  try {
+    await axios.post(
+      API_URL,
+      {
+        messaging_product: 'whatsapp',
+        to:                waId.replace(/[^0-9]/g, ''),
+        type:              'text',
+        text:              { body: body.trim(), preview_url: false },
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`,
+          'Content-Type':  'application/json',
+        },
+      }
+    );
+    return true;
+  } catch (err) {
+    const detail = err.response?.data?.error?.message || err.message;
+    console.error(`  ✗ Failed ${waId}: ${detail}`);
+    return false;
+  }
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
 }
 
 // ─── MESSAGE BUILDERS ─────────────────────────────────────────────────────────
@@ -56,25 +86,23 @@ function buildResultHeader() {
   const won  = ayitiScore > opponentScore;
   const drew = ayitiScore === opponentScore;
 
-  if (won) {
-    return (
-      `🇭🇹🔥 *AYITI GENYEN!!!*\n` +
-      `━━━━━━━━━━━━━━━━━━\n\n` +
-      `*${matchInfo.match}*\n` +
-      `⚽ *${ayitiScore} — ${opponentScore}*\n\n` +
-      `Les Grenadiers yo fè nou fyè!\n` +
-      `GRENADYE ALASO 💪\n`
-    );
-  }
-  if (drew) {
-    return (
-      `🇭🇹 *Match Egal — Men Nou La!*\n` +
-      `━━━━━━━━━━━━━━━━━━\n\n` +
-      `*${matchInfo.match}*\n` +
-      `⚽ *${ayitiScore} — ${opponentScore}*\n\n` +
-      `Yon pwen enpòtan! Nou kontinye goumen! 💪\n`
-    );
-  }
+  if (won) return (
+    `🇭🇹🔥 *AYITI GENYEN!!!*\n` +
+    `━━━━━━━━━━━━━━━━━━\n\n` +
+    `*${matchInfo.match}*\n` +
+    `⚽ *${ayitiScore} — ${opponentScore}*\n\n` +
+    `Les Grenadiers yo fè nou fyè!\n` +
+    `GRENADYE ALASO 💪\n`
+  );
+
+  if (drew) return (
+    `🇭🇹 *Match Egal — Men Nou La!*\n` +
+    `━━━━━━━━━━━━━━━━━━\n\n` +
+    `*${matchInfo.match}*\n` +
+    `⚽ *${ayitiScore} — ${opponentScore}*\n\n` +
+    `Yon pwen enpòtan! Nou kontinye goumen! 💪\n`
+  );
+
   return (
     `🇭🇹 *Ayiti — Nou Pa Kase!*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
@@ -86,66 +114,27 @@ function buildResultHeader() {
 
 function buildPredictionResult(predictor) {
   const { ayiti_score: pa, opponent_score: po } = predictor;
-  const exactMatch  = pa === ayitiScore && po === opponentScore;
-  const resultMatch = (pa > po) === (ayitiScore > opponentScore) &&
-                      (pa === po) === (ayitiScore === opponentScore);
-  const closeCall   = Math.abs(pa - ayitiScore) <= 1 && Math.abs(po - opponentScore) <= 1;
+  const exact      = pa === ayitiScore && po === opponentScore;
+  const rightSide  = (pa > po) === (ayitiScore > opponentScore) &&
+                     (pa === po) === (ayitiScore === opponentScore);
+  const close      = Math.abs(pa - ayitiScore) <= 1 && Math.abs(po - opponentScore) <= 1;
 
-  let result = 'wrong';
-  let msg    = '';
-
-  if (exactMatch) {
-    result = 'correct';
-    msg    = `🎯 *EGZAK! Ou te gen rezon!*\n` +
-             `Ou te di ${pa}-${po} — epi se sa ki pase! Chapeau! 🎩`;
-  } else if (resultMatch) {
-    result = 'correct';
-    msg    = `✅ *Bon rezulta!*\n` +
-             `Ou te di ${pa}-${po}. Rezilta a pa egzak men ou te konn ki bò ki t ap genyen! 👍`;
-  } else if (closeCall) {
-    result = 'close';
-    msg    = `🎯 *Prèske!*\n` +
-             `Ou te di ${pa}-${po}. Ou te pwòch anpil! 😄`;
-  } else {
-    msg    = `😅 *Ou pa t gen rezon fwa sa...*\n` +
-             `Ou te di ${pa}-${po}. Pa abandone — gen 2 match ankò!`;
-  }
-
-  return { msg, result };
+  if (exact)     return { result: 'correct', msg: `🎯 *EGZAK! Ou te gen rezon!*\nOu te di ${pa}-${po} — se sa ki pase! Chapeau! 🎩` };
+  if (rightSide) return { result: 'correct', msg: `✅ *Bon rezilta!*\nOu te di ${pa}-${po}. Ou te konn ki bò ki t ap genyen! 👍` };
+  if (close)     return { result: 'close',   msg: `🎯 *Prèske!*\nOu te di ${pa}-${po}. Ou te pwòch anpil! 😄` };
+  return           { result: 'wrong',   msg: `😅 *Ou pa t gen rezon fwa sa...*\nOu te di ${pa}-${po}. Gen 2 match ankò — pa abandone!` };
 }
 
 function buildNextMatchLine() {
-  const next = HAITI_SCHEDULE.find(
-    g => g.dateISO > matchDate && !g.dateISO.startsWith(matchDate)
-  );
+  const next = HAITI_SCHEDULE.find(g => g.dateISO > matchDate);
   if (!next) return `\n🏆 *Gwoup stage Ayiti a fini! Swiv pwogrè ekip la!*`;
   return (
     `\n📅 *Pwochen match:*\n` +
     `${next.match}\n` +
     `${next.dateStr} · ${next.time}\n` +
     `${next.venue}, ${next.city}\n\n` +
-    `Ekri *PARI 2-1* pou fè pwediksyon ou!`
+    `Ekri *PARI* pou fè pwediksyon ou!`
   );
-}
-
-// ─── SEND HELPER ─────────────────────────────────────────────────────────────
-
-async function send(waId, body) {
-  try {
-    await client.messages.create({
-      from: FROM_NUMBER,
-      to:   `whatsapp:+${waId.replace(/^\+/, '')}`,
-      body,
-    });
-    return true;
-  } catch (err) {
-    console.error(`  ✗ Failed ${waId}: ${err.message}`);
-    return false;
-  }
-}
-
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
 }
 
 // ─── MAIN ────────────────────────────────────────────────────────────────────
@@ -161,16 +150,14 @@ async function main() {
 
   // ── PHASE 1: Personalized messages to predictors ─────────────────────────
   console.log('Phase 1: Personalized predictor messages...');
-  const predictors = await getPredictorsForMatch(matchDate);
+  const predictors   = await getPredictorsForMatch(matchDate);
+  const predictorSet = new Set(predictors.map(p => p.whatsapp_id));
   console.log(`  Found ${predictors.length} predictors\n`);
 
   let correctCount = 0;
-  const predictorSet = new Set();
 
   for (const p of predictors) {
-    predictorSet.add(p.whatsapp_id);
     const { msg, result } = buildPredictionResult(p);
-
     const body =
       resultHeader +
       `━━━━━━━━━━━━━━━━━━\n` +
@@ -187,7 +174,7 @@ async function main() {
     }
     await sleep(DELAY_MS);
 
-    // Send standings as second message
+    // Second message: standings
     await send(p.whatsapp_id, standingsMsg);
     await sleep(DELAY_MS);
   }
@@ -197,7 +184,7 @@ async function main() {
 
   // ── PHASE 2: General broadcast to all engaged users ───────────────────────
   console.log('Phase 2: General broadcast to all WC-engaged users...');
-  const allUsers = await getAllEngagedUsers();
+  const allUsers     = await getAllEngagedUsers();
   const generalUsers = allUsers.filter(id => !predictorSet.has(id));
   console.log(`  ${allUsers.length} total engaged | ${predictors.length} already messaged | ${generalUsers.length} remaining\n`);
 
@@ -206,9 +193,9 @@ async function main() {
     nextMatchLine + '\n\n' +
     `━━━━━━━━━━━━━━━━━━\n` +
     `Ekri *SCORE* pou wè klasman an\n` +
-    `Ekri *PARI 2-1* pou pwochen match la\n` +
+    `Ekri *PARI* pou pwochen match la\n` +
     `_Si ou se yon vre Ayisyen, voye sa bay 5 moun 🇭🇹_\n` +
-    `wa.me/${process.env.BAZ_NUMBER || '14155238886'}`;
+    `wa.me/${process.env.WHATSAPP_PHONE_NUMBER_ID}`;
 
   let generalSent = 0;
   for (const waId of generalUsers) {
@@ -218,7 +205,6 @@ async function main() {
     await sleep(DELAY_MS);
   }
 
-  // ── SUMMARY ───────────────────────────────────────────────────────────────
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`✅ Broadcast complete`);
   console.log(`   Predictors messaged:  ${predictors.length}`);
