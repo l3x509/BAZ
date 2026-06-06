@@ -1,10 +1,8 @@
 require('dotenv').config();
-const express                    = require('express');
-const { handleWebhook,
-        handleVerification }     = require('./webhook');
-const { handleVendorRegister }   = require('./handlers/vendor-register');
-const { handleSubmit: handleEventSubmit,
-        handleExtract: handleEventExtract } = require('./handlers/events');
+const express                                    = require('express');
+const { handleWebhook, validateTwilioSignature } = require('./webhook');
+const { handleVendorRegister }                   = require('./handlers/vendor-register');
+const { handleSubmit: handleEventSubmit, handleExtract: handleEventExtract } = require('./handlers/events');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -30,7 +28,6 @@ app.use((req, res, next) => {
 });
 
 // ── RATE LIMITING ─────────────────────────────────────────────
-// In-memory — no Redis needed at this scale.
 const _rl = new Map();
 function rateLimit(max, windowMs) {
   return (req, res, next) => {
@@ -43,10 +40,8 @@ function rateLimit(max, windowMs) {
     _rl.set(key, r);
     if (r.n > max) {
       console.warn(`[rate-limit] ${key} — ${r.n} requests in window`);
-      // Meta webhook: return 200 so Meta doesn't retry flood
-      // All other routes: standard 429
       return req.path === '/webhook'
-        ? res.sendStatus(200)
+        ? res.status(429).type('text/xml').send('<Response></Response>')
         : res.status(429).json({ error: 'Too many requests' });
     }
     next();
@@ -58,10 +53,8 @@ setInterval(() => {
 }, 10 * 60 * 1000).unref();
 
 // ── BODY PARSERS ──────────────────────────────────────────────
-// json: Meta Cloud API sends JSON payloads
-// urlencoded: kept for vendor registration from bazht.com
-app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
 app.use('/admin', require('./directory'));
 
 // ── CORS ──────────────────────────────────────────────────────
@@ -80,34 +73,24 @@ app.use((req, res, next) => {
 
 // ── ROUTES ────────────────────────────────────────────────────
 
-// Health check
 app.get('/', (req, res) => {
   res.json({ status: 'ok', service: 'baz-agent', ts: new Date().toISOString() });
 });
 
-// Meta webhook verification — called once when configuring webhook URL
-app.get('/webhook', handleVerification);
+app.post('/webhook', validateTwilioSignature, rateLimit(30, 60_000), handleWebhook);
 
-// Incoming WhatsApp messages from Meta Cloud API
-// Rate limited to 30 messages/min per IP
-app.post('/webhook', rateLimit(30, 60_000), handleWebhook);
-
-// Vendor registration from bazht.com/vendor.html
 app.post('/vendor/register', rateLimit(5, 60_000), handleVendorRegister);
 
-// Event submission from BazEventFlow.jsx
 app.post('/events/submit',  rateLimit(20, 60_000), handleEventSubmit);
 app.post('/events/extract', rateLimit(15, 60_000), handleEventExtract);
 
-// Analytics dashboard
 app.use('/admin', require('./analytics'));
 
 // ── GLOBAL ERROR HANDLER ──────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error('[server] Unhandled error:', err.message, err.stack);
-  // Meta webhook must always get 200 — never return 5xx or it will retry
   if (req.path === '/webhook') {
-    return res.sendStatus(200);
+    return res.status(500).type('text/xml').send('<Response></Response>');
   }
   res.status(500).json({ error: 'Internal server error' });
 });
