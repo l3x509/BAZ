@@ -1,29 +1,31 @@
 'use strict';
 
-const twilio         = require('twilio');
+const twilio             = require('twilio');
 const { processMessage } = require('./router');
 
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
 
 // ── TWILIO SIGNATURE VALIDATION ───────────────────────────────
-// Rejects anything not genuinely from Twilio's servers.
+// Railway terminates SSL at the proxy layer — req.protocol returns
+// 'http' but Twilio always signs with 'https'. Force https here
+// so the URL used for validation matches what Twilio signed.
 function validateTwilioSignature(req, res, next) {
   const signature = req.headers['x-twilio-signature'] || '';
-  const url       = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+  const protocol  = req.headers['x-forwarded-proto'] || 'https';
+  const url       = `${protocol}://${req.get('host')}${req.originalUrl}`;
   const valid     = twilio.validateRequest(AUTH_TOKEN, signature, url, req.body);
+
   if (!valid) {
     console.warn('[webhook] Invalid Twilio signature — rejected');
+    console.warn('[webhook] URL used:', url);
     return res.status(403).type('text/xml').send('<Response></Response>');
   }
   next();
 }
 
 // ── INBOUND MESSAGE HANDLER ───────────────────────────────────
-// Twilio sends form-encoded POST. Must always return TwiML XML.
 async function handleWebhook(req, res) {
-  // Respond immediately with empty TwiML — Twilio requires this.
-  // Actual response sent via REST API in whatsapp.js.
   res.type('text/xml').send('<Response></Response>');
 
   try {
