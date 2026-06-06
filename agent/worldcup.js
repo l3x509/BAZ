@@ -4,6 +4,7 @@
 'use strict';
 
 const { createClient } = require('@supabase/supabase-js');
+const { sendButtons }  = require('./whatsapp');
 
 let _supabase = null;
 function getSupabase() {
@@ -11,7 +12,7 @@ function getSupabase() {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
-    console.warn('[worldcup] Supabase env vars missing — PARI/tracking disabled');
+    console.warn('[worldcup] Supabase env vars missing — Prediksyon/tracking disabled');
     return null;
   }
   _supabase = createClient(url, key);
@@ -28,7 +29,7 @@ const HAITI_SCHEDULE = [
     opponent:  'Scotland',
     aliases:   ['eks', 'ekos', 'ekòs', 'scotland', 'skotland', 'ekoss'],
     shortName: 'Ekòs',
-    dateStr:   'Sam 13 Jen 2026',
+    dateStr:   'Samdi 13 Jen 2026',
     dateISO:   '2026-06-13',
     time:      '9PM ET',
     venue:     'Gillette Stadium',
@@ -40,7 +41,7 @@ const HAITI_SCHEDULE = [
     opponent:  'Brazil',
     aliases:   ['brezil', 'brazil', 'bresil', 'br', 'brezl'],
     shortName: 'Brezil',
-    dateStr:   'Van 19 Jen 2026',
+    dateStr:   'Vandredi 19 Jen 2026',
     dateISO:   '2026-06-19',
     time:      '9PM ET',
     venue:     'Lincoln Financial Field',
@@ -52,7 +53,7 @@ const HAITI_SCHEDULE = [
     opponent:  'Morocco',
     aliases:   ['marok', 'maroc', 'morocco', 'maro'],
     shortName: 'Marok',
-    dateStr:   'Mèk 24 Jen 2026',
+    dateStr:   'Mèkredi 24 Jen 2026',
     dateISO:   '2026-06-24',
     time:      '6PM ET',
     venue:     'Mercedes-Benz Stadium',
@@ -62,7 +63,6 @@ const HAITI_SCHEDULE = [
 ];
 
 // ─── GROUP C STANDINGS ────────────────────────────────────────────────────────
-// Update manually after each match — push to GitHub, Railway redeploys ~90s
 
 let GROUP_C_STANDINGS = [
   { team: '🇧🇷 Brezil', flag: '🇧🇷', P: 0, W: 0, D: 0, L: 0, GF: 0, GA: 0 },
@@ -82,12 +82,12 @@ function getSortedStandings() {
 
 function formatStandings() {
   const sorted   = getSortedStandings();
-  const pos      = ['1.', '2.', '3.', '4.'];
+  const posEmoji = ['1.', '2.', '3.', '4.'];
   const rows     = sorted.map((t, i) => {
     const gd    = t.GF - t.GA;
     const gdStr = gd > 0 ? `+${gd}` : `${gd}`;
     const mark  = t.flag === '🇭🇹' ? ' ◀' : '';
-    return `${pos[i]} ${t.team}  ${t.P}pt  ${t.W}V ${t.D}N ${t.L}D  GD${gdStr}${mark}`;
+    return `${posEmoji[i]} ${t.team}  ${t.P}pt  ${t.W}V ${t.D}N ${t.L}D  GD${gdStr}${mark}`;
   });
   return (
     `📊 *Gwoup C — Klasman*\n` +
@@ -101,7 +101,7 @@ function formatStandings() {
 // ─── MATCH SCORES ─────────────────────────────────────────────────────────────
 
 const SCORES = {
-  '2026-06-13': null,  // { ayiti: 1, opponent: 0, label: 'Ayiti 1 — Ekos 0 🎉' }
+  '2026-06-13': null,
   '2026-06-19': null,
   '2026-06-24': null,
 };
@@ -124,12 +124,13 @@ function isMatchDay(dateISO) {
 }
 
 function isMatchLocked(dateISO) {
-  const kickoffs = {
+  const matchTimes = {
     '2026-06-13': new Date('2026-06-13T21:00:00-04:00'),
     '2026-06-19': new Date('2026-06-19T21:00:00-04:00'),
     '2026-06-24': new Date('2026-06-24T18:00:00-04:00'),
   };
-  return kickoffs[dateISO] ? new Date() >= kickoffs[dateISO] : true;
+  const kickoff = matchTimes[dateISO];
+  return kickoff ? new Date() >= kickoff : true;
 }
 
 function isMatchPast(dateISO) {
@@ -140,23 +141,20 @@ function getNextMatch() {
   return HAITI_SCHEDULE.find(g => !isMatchPast(g.dateISO)) || null;
 }
 
-// No 📅 emoji — WhatsApp renders it as today's date on Android regardless of context
 function formatSchedule() {
   return HAITI_SCHEDULE.map((g, i) => {
-    const status  = daysFromNow(g.dateISO);
-    const today   = isMatchDay(g.dateISO) ? ' 🔥 *JODI A!*' : '';
-    const locked  = isMatchLocked(g.dateISO) && !isMatchPast(g.dateISO) ? ' 🔴' : '';
-    const past    = isMatchPast(g.dateISO);
-    const score   = SCORES[g.dateISO];
-    const result  = past && score ? `\n   ⚽ ${score.label}` : '';
+    const status = daysFromNow(g.dateISO);
+    const today  = isMatchDay(g.dateISO) ? ' 🔥 JODI A!' : '';
     return (
-      `${i + 1}. *${g.match}*${today}${locked}\n` +
+      `${i + 1}. *${g.match}*${today}\n` +
       `   ${g.dateStr} · ${g.time}\n` +
       `   ${g.venue}, ${g.city}\n` +
-      `   ${g.note} · ${status}${result}`
+      `   ${g.note} · ${status}`
     );
   }).join('\n\n');
 }
+
+// ─── SHARE LINE ───────────────────────────────────────────────────────────────
 
 const SHARE_LINE =
   `_Si ou se yon vre Ayisyen, voye sa bay 5 moun ou konnen 🇭🇹_\n` +
@@ -169,7 +167,6 @@ function trackEngagement(waId) {
   try {
     const sb = getSupabase();
     if (!sb) return;
-    // .rpc() returns a Supabase query builder, not a native Promise — wrap it
     Promise.resolve(sb.rpc('upsert_wc_engaged', { p_wa_id: waId })).catch(() => {});
   } catch {}
 }
@@ -183,7 +180,8 @@ function handleAyiti(waId) {
     ? `Match la JODI A — ${next.time}!\n${next.venue}, ${next.city}\n\n`
     : next ? `Pwochen match: *${next.opponent}* — ${daysFromNow(next.dateISO)}\n\n`
     : `Gwoup stage fini!\n\n`;
-  return (
+
+  const msg =
     `🇭🇹 *VIV AYITI!*\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
     `Premye fwa depi *52 an!*\n` +
@@ -192,10 +190,20 @@ function handleAyiti(waId) {
     `Ekri *MATCH* — orè match yo\n` +
     `Ekri *WATCH PARTY* — kote gade match la\n` +
     `Ekri *TRANSPÒ* — transpò pou ale nan match\n` +
-    `Ekri *PREDIKSYON* — fè pwediksyon pou tout 3 match\n\n` +
+    `Ekri *PREDIKSYON 2-1* — fè prediksyon ou\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    SHARE_LINE
-  );
+    SHARE_LINE;
+
+  // Send navigation buttons 1.5s after hype text
+  setTimeout(() => {
+    sendButtons(waId, '👇 Chwazi yon opsyon:', [
+      { id: 'match',      title: '📅 Orè Match' },
+      { id: 'prediksyon', title: '🎯 Prediksyon' },
+      { id: 'gillette',   title: '🏟️ Gillette' },
+    ]).catch(() => {});
+  }, 1500);
+
+  return msg;
 }
 
 function handleMatch(waId) {
@@ -211,7 +219,7 @@ function handleMatch(waId) {
     `━━━━━━━━━━━━━━━━━━\n` +
     `Ekri *GRENADYE ALASO* pou sipote ekip la\n` +
     `Ekri *WATCH PARTY* pou jwenn kote gade match la\n` +
-    `Ekri *PREDIKSYON* pou fè pwediksyon ou pou tout match yo\n` +
+    `Ekri *PREDIKSYON* pou fè prediksyon ou pou tout match yo\n` +
     `Ekri *SCORE* pou wè klasman an`;
   return [msg1, formatStandings()];
 }
@@ -224,6 +232,7 @@ function handleGrenadye(waId) {
       ? `Match la *JODI A* — ${next.time} — ${next.venue}!`
       : `${daysFromNow(next.dateISO)} pou match *${next.opponent}* la!`
     : `Les Grenadiers yo kontinye goumen!`;
+
   const msg1 =
     `🇭🇹🔥 *GRENADYE ALASO!*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
@@ -234,7 +243,7 @@ function handleGrenadye(waId) {
     `Premye fwa nan World Cup depi *52 an.*\n` +
     `*Sa pa chans — sa destin.*\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    `Ekri *PREDIKSYON* pou fè pwediksyon pou tout match yo\n\n` +
+    `Ekri *PREDIKSYON 2-1* pou fè prediksyon ou\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
     SHARE_LINE;
   return [msg1, formatSchedule()];
@@ -242,7 +251,7 @@ function handleGrenadye(waId) {
 
 function handleWatchParty(waId) {
   trackEngagement(waId);
-  const next      = getNextMatch();
+  const next = getNextMatch();
   const matchLine = next
     ? `match *${next.match}* — ${next.dateStr} ${next.time}`
     : `pwochen match Ayiti a`;
@@ -285,10 +294,10 @@ function handleTransport(waId) {
 function handleGillette(waId) {
   trackEngagement(waId);
   return (
-    `🏟️ *GILLETTE STADIUM — 13 JEN 2026*\n` +
+    `🏟️ *GILLETTE STADIUM — JUNE 13*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
     `🇭🇹 Ayiti vs Ekòs 🏴󠁧󠁢󠁳󠁣󠁴󠁿\n` +
-    `Sam 13 Jen 2026 · 9PM ET\n` +
+    `Samdi 13 Jen 2026 · 9PM ET\n` +
     `Foxborough, MA — *Lakay nou!*\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
     `📍 *Plan jou match la:*\n\n` +
@@ -296,7 +305,7 @@ function handleGillette(waId) {
     `🚗 *"Chofè Boston"* — transpò Foxborough\n` +
     `📺 *"Resto Boston"* — gade si ou pa gen tikè\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
-    `Ekri *PREDIKSYON EKS 2-1* pou bay pwediksyon ou!\n\n` +
+    `Ekri *PREDIKSYON EKS 2-1* pou fè prediksyon ou!\n\n` +
     SHARE_LINE
   );
 }
@@ -314,32 +323,27 @@ function handleGoal(waId) {
 
 function handleScore(waId) {
   trackEngagement(waId);
+  const now   = new Date();
   const lines = HAITI_SCHEDULE.map(g => {
     const past  = isMatchPast(g.dateISO);
     const score = SCORES[g.dateISO];
     if (past) return score
       ? `✅ ${g.match}\n   ${score.label}`
       : `⏳ ${g.match}\n   Rezilta ap vini...`;
-    return `${g.match} — ${daysFromNow(g.dateISO)}`;
+    return `📅 ${g.match} — ${daysFromNow(g.dateISO)}`;
   });
   const msg1 =
     `🇭🇹⚽ *Rezilta — Ayiti World Cup 2026*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
     lines.join('\n\n') +
     `\n\n━━━━━━━━━━━━━━━━━━\n` +
-    `Ekri *PREDIKSYON* pou wè oswa chanje pwediksyon ou yo 🎯`;
+    `Ekri *GRENADYE ALASO* pou sipote ekip la 🔥\n` +
+    `Ekri *PREDIKSYON* pou wè oswa chanje prediksyon ou yo 🎯`;
   return [msg1, formatStandings()];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PREDIKSYON SYSTEM
-// Keyword: PREDIKSYON (was PARI)
-// "PREDIKSYON"              → dashboard — all 3 matches + current predictions
-// "PREDIKSYON EKS 2-1"      → Scotland prediction
-// "PREDIKSYON BREZIL 1-0"   → Brazil prediction
-// "PREDIKSYON MAROK 0-1"    → Morocco prediction
-// "PREDIKSYON 2-1"          → next upcoming match (fallback)
-// "PREDIKSYON MWE"          → show all predictions with results
 // ═══════════════════════════════════════════════════════════════════════════════
 
 function identifyMatchFromMessage(msg) {
@@ -349,7 +353,7 @@ function identifyMatchFromMessage(msg) {
   return null;
 }
 
-function parseScore(msg) {
+function parsePariScore(msg) {
   const nums = msg.match(/\d+/g);
   if (!nums || nums.length < 2) return null;
   const a = parseInt(nums[0], 10);
@@ -381,10 +385,11 @@ async function savePrediction(waId, game, score) {
   if (error) throw error;
 }
 
-// ── Dashboard — all 3 matches + current predictions ───────────────────────────
-
-async function handlePrediksyonDashboard(waId) {
+async function handlePariDashboard(waId) {
   trackEngagement(waId);
+  if (!getSupabase()) {
+    return `⚽ *Prediksyon ap vini byento!*\n\nSistèm nan ap prepare. Eseye ankò talè. 🇭🇹`;
+  }
 
   let predictions = [];
   try { predictions = await loadUserPredictions(waId); } catch {}
@@ -402,27 +407,27 @@ async function handlePrediksyonDashboard(waId) {
     let predLine   = '';
 
     if (past && score) {
-      statusLine = `✅ ${score.label}`;
+      statusLine = `✅ Rezilta: *${score.label}*`;
       if (pred) {
-        const exact     = pred.ayiti_score === score.ayiti && pred.opponent_score === score.opponent;
+        const correct  = pred.ayiti_score === score.ayiti && pred.opponent_score === score.opponent;
         const rightSide = (pred.ayiti_score > pred.opponent_score) === (score.ayiti > score.opponent) &&
                           (pred.ayiti_score === pred.opponent_score) === (score.ayiti === score.opponent);
-        predLine = exact      ? `   🎯 Pwediksyon: ${pred.ayiti_score}-${pred.opponent_score} — *EGZAK!* 🏆`
-                 : rightSide  ? `   ✅ Pwediksyon: ${pred.ayiti_score}-${pred.opponent_score} — Bon bò!`
-                              : `   ❌ Pwediksyon: ${pred.ayiti_score}-${pred.opponent_score}`;
+        predLine = correct   ? `   🎯 Prediksyon: ${pred.ayiti_score}-${pred.opponent_score} — *EGZAK!* 🏆`
+                 : rightSide ? `   ✅ Prediksyon: ${pred.ayiti_score}-${pred.opponent_score} — Bon bò!`
+                             : `   ❌ Prediksyon: ${pred.ayiti_score}-${pred.opponent_score}`;
       } else {
-        predLine = `   ⚠️ Ou pa t fè pwediksyon pou match sa`;
+        predLine = `   ⚠️ Ou pa t fè prediksyon pou match sa`;
       }
     } else if (locked) {
-      statusLine = `🔴 Match kòmanse — pwediksyon fèmen`;
+      statusLine = `🔴 Match kòmanse — prediksyon fèmen`;
       predLine   = pred
-        ? `   Pwediksyon: *Ayiti ${pred.ayiti_score} — ${pred.opponent_score} ${g.shortName}*`
-        : `   Pa fè pwediksyon ⏳`;
+        ? `   Prediksyon ou: *Ayiti ${pred.ayiti_score} — ${pred.opponent_score} ${g.shortName}*`
+        : `   Pa fè prediksyon ⏳`;
     } else {
-      statusLine = `${g.dateStr} · ${g.time} · ${daysFromNow(g.dateISO)}`;
+      statusLine = `⏳ ${daysFromNow(g.dateISO)} · ${g.time}`;
       predLine   = pred
-        ? `   Pwediksyon: *Ayiti ${pred.ayiti_score} — ${pred.opponent_score} ${g.shortName}* ✏️`
-        : `   Pa fè — *Ekri PREDIKSYON ${g.shortName.toUpperCase()} 2-1*`;
+        ? `   Prediksyon: *Ayiti ${pred.ayiti_score} — ${pred.opponent_score} ${g.shortName}* ✏️`
+        : `   Pa fè prediksyon — *Ekri PREDIKSYON ${g.shortName.toUpperCase()} 2-1*`;
     }
 
     return `${i + 1}. *${g.match}*\n   ${statusLine}\n${predLine}`;
@@ -431,105 +436,105 @@ async function handlePrediksyonDashboard(waId) {
   const openCount = HAITI_SCHEDULE.filter(g => !isMatchLocked(g.dateISO)).length;
   const footer    = openCount > 0
     ? `━━━━━━━━━━━━━━━━━━\n` +
-      `Fè oswa chanje pwediksyon:\n` +
-      `⚽ *PREDIKSYON EKS 2-1*\n` +
-      `⚽ *PREDIKSYON BREZIL 1-0*\n` +
-      `⚽ *PREDIKSYON MAROK 0-1*\n\n` +
+      `Fè oswa chanje prediksyon:\n` +
+      `⚽ *PREDIKSYON EKS 2-1* — Scotland\n` +
+      `⚽ *PREDIKSYON BREZIL 1-0* — Brazil\n` +
+      `⚽ *PREDIKSYON MAROK 0-1* — Marok\n\n` +
       `_Score Ayiti toujou an premye_\n` +
-      `_Pwediksyon fèmen lè match kòmanse_`
+      `_Prediksyon fèmen lè match kòmanse_`
     : `━━━━━━━━━━━━━━━━━━\n` +
-      `_Tout pwediksyon fèmen. Mèsi pou sipò ou! 🇭🇹_`;
+      `_Tout prediksyon fèmen. Mèsi pou sipò ou! 🇭🇹_`;
 
   return (
-    `⚽ *Pwediksyon Ou — World Cup 2026 🇭🇹*\n` +
+    `⚽ *Prediksyon Ou — World Cup 2026 🇭🇹*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
     lines.join('\n\n') +
     `\n\n` + footer
   );
 }
 
-// ── Set prediction for a specific match ───────────────────────────────────────
-
-async function handlePrediksyonSet(game, score, waId) {
+async function handlePariSet(game, score, waId) {
   if (isMatchLocked(game.dateISO)) {
     return (
-      `🔒 *Pwediksyon pou ${game.opponent} fèmen!*\n\n` +
+      `🔒 *Prediksyon pou ${game.opponent} fèmen!*\n\n` +
       `Match la deja kòmanse.\n` +
       (getNextMatch() ? `Ekri *PREDIKSYON* pou wè pwochen match la.` : ``)
     );
   }
 
-  try {
-    await savePrediction(waId, game, score);
-  } catch (err) {
+  try { await savePrediction(waId, game, score); }
+  catch (err) {
     console.error('[worldcup] prediksyon save error:', err.message);
     return `😔 Pwoblèm teknik. Eseye ankò.`;
   }
 
-  const vibe = score.ayiti > score.opponent && score.ayiti >= 3 ? `💪 Ou gen konfyans!`
-             : score.ayiti > score.opponent                      ? `👍 Bon pwediksyon!`
-             : score.ayiti === score.opponent                    ? `🤝 Ou panse match egal?`
-             : score.opponent >= 3                               ? `😅 Ou twò pessimis...`
-                                                                 : `😬 Se posib...`;
+  const won  = score.ayiti > score.opponent;
+  const drew = score.ayiti === score.opponent;
+
+  const vibe = won && score.ayiti >= 3 ? `💪 Ou gen konfyans!`
+             : won                      ? `👍 Bon prediksyon!`
+             : drew                     ? `🤝 Ou panse match egal?`
+             : score.opponent >= 3      ? `😅 Ou twò pessimis... men bon!`
+                                        : `😬 Se posib...`;
 
   let betCount = 0;
-  try { betCount = (await loadUserPredictions(waId)).length; } catch {}
+  try { const preds = await loadUserPredictions(waId); betCount = preds.length; } catch {}
+
   const remaining = 3 - betCount;
   const nudge     = remaining > 0
     ? `\n_${remaining} match rete — ekri *PREDIKSYON* pou wè tout_`
-    : `\n_✅ Ou fè pwediksyon pou tout 3 match!_`;
+    : `\n_✅ Ou fè prediksyon pou tout 3 match! Ekri *PREDIKSYON* pou wè yo tout_`;
 
   return (
-    `✅ *Pwediksyon anrejistre — ${game.opponent}!*\n\n` +
+    `✅ *Prediksyon anrejistre — ${game.opponent}!*\n\n` +
     `🇭🇹 Ayiti *${score.ayiti}* — *${score.opponent}* ${game.shortName}\n` +
     `${vibe}\n\n` +
-    `${game.dateStr} · ${game.time}\n` +
-    `${game.venue}, ${game.city}\n` +
+    `📅 ${game.dateStr} · ${game.time}\n` +
+    `📍 ${game.venue}, ${game.city}\n` +
     nudge
   );
 }
 
-// ── Main PREDIKSYON dispatcher ────────────────────────────────────────────────
-
-async function handlePrediksyon(message, waId) {
+async function handlePari(message, waId) {
   trackEngagement(waId);
+  if (!getSupabase()) {
+    return `⚽ *Prediksyon ap vini byento!*\n\nSistèm nan ap prepare. Eseye ankò talè. 🇭🇹`;
+  }
 
   const msg   = message.trim().toLowerCase().replace(/[!¡]/g, '');
   const game  = identifyMatchFromMessage(msg);
-  const score = parseScore(msg);
+  const score = parsePariScore(msg);
 
-  // "PREDIKSYON" alone or "PREDIKSYON MWE" → dashboard
-  if (!score) return handlePrediksyonDashboard(waId);
+  // "PREDIKSYON" or "PARI" alone → dashboard
+  if (!game && !score) return handlePariDashboard(waId);
 
-  // "PREDIKSYON BREZIL" with no score → show current bet + instructions
+  // "PREDIKSYON BREZIL" with no score → instructions for that match
   if (game && !score) {
     let existing = null;
-    try {
-      const preds = await loadUserPredictions(waId);
-      existing    = preds.find(p => p.match_date === game.dateISO) || null;
-    } catch {}
+    try { const preds = await loadUserPredictions(waId); existing = preds.find(p => p.match_date === game.dateISO) || null; } catch {}
 
-    if (isMatchPast(game.dateISO)) {
+    const locked = isMatchLocked(game.dateISO);
+    const past   = isMatchPast(game.dateISO);
+
+    if (past) {
       const result = SCORES[game.dateISO];
       return (
         `📊 *Match ${game.opponent} — Rezilta*\n\n` +
         (result ? `⚽ ${result.label}\n\n` : `Rezilta ap vini...\n\n`) +
-        (existing ? `Pwediksyon ou: Ayiti ${existing.ayiti_score} — ${existing.opponent_score}` : `Ou pa t fè pwediksyon pou match sa.`)
+        (existing ? `Prediksyon ou te fè: Ayiti ${existing.ayiti_score} — ${existing.opponent_score}` : `Ou pa t fè prediksyon pou match sa.`)
       );
     }
-
-    if (isMatchLocked(game.dateISO)) {
+    if (locked) {
       return (
-        `🔒 *Pwediksyon ${game.opponent} fèmen — match kòmanse!*\n\n` +
-        (existing ? `Pwediksyon ou: Ayiti *${existing.ayiti_score} — ${existing.opponent_score}* ${game.shortName}` : `Ou pa t fè pwediksyon.`)
+        `🔒 *Prediksyon ${game.opponent} fèmen — match kòmanse!*\n\n` +
+        (existing ? `Prediksyon ou: Ayiti *${existing.ayiti_score} — ${existing.opponent_score}* ${game.shortName}` : `Ou pa t fè prediksyon.`)
       );
     }
-
     return (
-      `⚽ *Pwediksyon pou match ${game.opponent}*\n\n` +
+      `⚽ *Prediksyon pou match ${game.opponent}*\n\n` +
       (existing
-        ? `Pwediksyon aktyèl: *Ayiti ${existing.ayiti_score} — ${existing.opponent_score} ${game.shortName}*\n\nPou chanje li:\n`
-        : `Ou pa fè pwediksyon ankò pou match sa.\n\n`) +
+        ? `Prediksyon aktyèl: *Ayiti ${existing.ayiti_score} — ${existing.opponent_score} ${game.shortName}*\n\nPou chanje li:\n`
+        : `Ou pa fè prediksyon ankò pou match sa.\n\n`) +
       `Ekri: *PREDIKSYON ${game.shortName.toUpperCase()} [score]-[score]*\n\n` +
       `Egzanp:\n` +
       `👉 *PREDIKSYON ${game.shortName.toUpperCase()} 2-1* — Ayiti genyen 2-1\n` +
@@ -538,19 +543,18 @@ async function handlePrediksyon(message, waId) {
     );
   }
 
-  // "PREDIKSYON 2-1" with no opponent → next upcoming match
+  // No opponent specified → next upcoming match
   if (!game && score) {
     const next = getNextMatch();
-    if (!next) return `⚽ Tout match fini. Pwediksyon fèmen. Mèsi! 🇭🇹`;
-    return handlePrediksyonSet(next, score, waId);
+    if (!next) return `⚽ Tout match fini. Prediksyon fèmen. Mèsi! 🇭🇹`;
+    return handlePariSet(next, score, waId);
   }
 
-  // "PREDIKSYON BREZIL 1-0" — full prediction
-  return handlePrediksyonSet(game, score, waId);
+  // Full prediction: "PREDIKSYON BREZIL 1-0"
+  return handlePariSet(game, score, waId);
 }
 
 // ─── KEYWORD ROUTER ───────────────────────────────────────────────────────────
-// Returns: string | string[] | Promise<string> | null
 
 function handleWorldCupKeywords(message, waId) {
   const msg = message.trim().toLowerCase().replace(/[!¡]/g, '');
@@ -573,16 +577,20 @@ function handleWorldCupKeywords(message, waId) {
   if (['watch party', 'watch', 'party', 'fet match', 'kote gade', 'gade match', 'gade'].includes(msg))
     return handleWatchParty(waId);
 
-  if (['transpò', 'transpo', 'transport', 'chofè', 'chofe', 'ride'].includes(msg))
+  if (['transpò', 'transpo', 'transport', 'chofè', 'chofe', 'driver', 'ride'].includes(msg))
     return handleTransport(waId);
 
-  if (['gillette', 'gillette stadium', 'foxborough'].includes(msg))
+  if (['gillette', 'gillette stadium', 'foxborough', 'ekos', 'scotland'].includes(msg))
     return handleGillette(waId);
 
-  // PREDIKSYON — catches all variants
-  if (msg === 'prediksyon' || msg === 'prediksyon mwe' || msg === 'prediksyon mwen' ||
-      msg === 'prediction' || msg === 'my prediction' || msg.startsWith('prediksyon '))
-    return handlePrediksyon(message, waId); // Promise
+  // PREDIKSYON — supports both "prediksyon" and legacy "pari" keyword
+  if (
+    msg === 'prediksyon' || msg === 'prediksyon mwe' || msg === 'prediksyon mwen' ||
+    msg === 'my prediksyon' || msg.startsWith('prediksyon ') ||
+    msg === 'pari' || msg === 'pari mwe' || msg === 'pari mwen' ||
+    msg === 'my pari' || msg === 'mon pari' || msg.startsWith('pari ')
+  )
+    return handlePari(message, waId); // Promise
 
   return null;
 }
