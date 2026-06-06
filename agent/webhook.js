@@ -1,49 +1,56 @@
 'use strict';
 
-const twilio             = require('twilio');
 const { processMessage } = require('./router');
+const { markAsRead }     = require('./whatsapp');
 
-const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN;
+const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 
-// ── TWILIO SIGNATURE VALIDATION ───────────────────────────────
-// Railway terminates SSL at the proxy layer — req.protocol returns
-// 'http' but Twilio always signs with 'https'. Force https here
-// so the URL used for validation matches what Twilio signed.
-function validateTwilioSignature(req, res, next) {
-  const signature = req.headers['x-twilio-signature'] || '';
-  const protocol  = req.headers['x-forwarded-proto'] || 'https';
-  const url       = `${protocol}://${req.get('host')}${req.originalUrl}`;
-  const valid     = twilio.validateRequest(AUTH_TOKEN, signature, url, req.body);
-
-  if (!valid) {
-    console.warn('[webhook] Invalid Twilio signature — rejected');
-    console.warn('[webhook] URL used:', url);
-    return res.status(403).type('text/xml').send('<Response></Response>');
+function handleVerification(req, res) {
+  const mode      = req.query['hub.mode'];
+  const token     = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('[webhook] Meta verification successful');
+    return res.status(200).send(challenge);
   }
-  next();
+  console.warn('[webhook] Meta verification failed — token mismatch');
+  return res.sendStatus(403);
 }
 
-// ── INBOUND MESSAGE HANDLER ───────────────────────────────────
-async function handleWebhook(req, res) {
-  res.type('text/xml').send('<Response></Response>');
-
+function handleWebhook(req, res) {
+  res.sendStatus(200);
   try {
-    const waId        = (req.body.From || '').replace('whatsapp:', '');
-    const displayName = req.body.ProfileName || '';
-    const messageId   = req.body.MessageSid  || '';
-    const messageType = req.body.MediaUrl0   ? 'image' : 'text';
-    const content     = req.body.Body        || '';
-
-    if (!waId) return;
-
-    console.log(`[webhook] ${new Date().toISOString()} | from=${waId} type=${messageType} body="${content.slice(0, 60)}"`);
-
-    await processMessage({ waId, displayName, messageId, messageType, content });
-
+    const body = req.body;
+    if (body?.object !== 'whatsapp_business_account') return;
+    for (const entry of (body.entry || [])) {
+      for (const change of (entry.changes || [])) {
+        if (change.field !== 'messages') continue;
+        const value    = change.value || {};
+        const messages = value.messages || [];
+        const contacts = value.contacts || [];
+        if (!messages.length) continue;
+        for (const msg of messages) {
+          const messageType = msg.type || 'text';
+          let content = '';
+          if (messageType === 'text') content = msg.text?.body || '';
+          else if (messageType === 'interactive') {
+            content = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '';
+          }
+          const contact     = contacts.find(c => c.wa_id === msg.from) || contacts[0] || {};
+          const waId        = msg.from;
+          const displayName = contact.profile?.name || '';
+          const messageId   = msg.id;
+          if (!waId) continue;
+          console.log(`[webhook] ${new Date().toISOString()} | from=${waId} type=${messageType} body="${content.slice(0, 60)}"`);
+          markAsRead(messageId).catch(() => {});
+          processMessage({ waId, displayName, messageId, messageType, content })
+            .catch(err => console.error('[webhook] processMessage error:', err.message));
+        }
+      }
+    }
   } catch (err) {
-    console.error('[webhook] error:', err.message, err.stack);
+    console.error('[webhook] parse error:', err.message);
   }
 }
 
-module.exports = { handleWebhook, validateTwilioSignature };
+module.exports = { handleWebhook, handleVerification };
