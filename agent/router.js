@@ -22,13 +22,7 @@ const PENDING_TTL_MS     = 5 * 60 * 1000;
 const MAX_MESSAGE_LENGTH = 1000;
 const CLAUDE_TIMEOUT_MS  = 8000;
 
-// ════════════════════════════════════════════════════════════
-// KEYWORD PRE-ROUTER
-// Keys are stored normalized — lookups work with or without diacritics.
-// e.g. 'kwafiè' and 'kwafie' both hit 'hair_beauty'.
-// ════════════════════════════════════════════════════════════
 const KEYWORD_MAP_RAW = {
-  // Creole
   'cheve': 'hair_beauty', 'bote': 'hair_beauty', 'kwafiè': 'hair_beauty',
   'trese': 'hair_beauty', 'tres': 'hair_beauty', 'zong': 'hair_beauty',
   'manje': 'restaurant',  'restoran': 'restaurant', 'griyo': 'restaurant',
@@ -56,7 +50,6 @@ const KEYWORD_MAP_RAW = {
   'pwofesè': 'tutor',     'lekòl': 'tutor',
   'doktè': 'medical',     'klinik': 'medical',     'famasi': 'medical',
   'imobilye': 'real_estate',
-  // English
   'hair': 'hair_beauty',  'salon': 'hair_beauty',  'braids': 'hair_beauty',
   'nails': 'hair_beauty', 'barber': 'hair_beauty',
   'food': 'restaurant',   'restaurant': 'restaurant', 'eat': 'restaurant',
@@ -77,7 +70,6 @@ const KEYWORD_MAP_RAW = {
   'tutor': 'tutor',       'school': 'tutor',
   'medical': 'medical',   'doctor': 'medical',     'pharmacy': 'medical',
   'realtor': 'real_estate', 'real estate': 'real_estate',
-  // French
   'cheveux': 'hair_beauty', 'coiffure': 'hair_beauty',
   'manger': 'restaurant',   'nourriture': 'restaurant',
   'avocat': 'legal',
@@ -89,12 +81,8 @@ const KEYWORD_MAP_RAW = {
   'mode': 'fashion',
 };
 
-// Pre-normalize all keys at startup — lookups are then O(1) regardless of diacritics
 const KEYWORD_MAP = normalizeMap(KEYWORD_MAP_RAW);
 
-// ════════════════════════════════════════════════════════════
-// EMOJI MAP
-// ════════════════════════════════════════════════════════════
 const EMOJI_MAP = {
   '💇': 'hair_beauty', '💇‍♀️': 'hair_beauty', '💅': 'hair_beauty', '✂️': 'hair_beauty',
   '🍽️': 'restaurant',  '🍲': 'restaurant',  '🥘': 'restaurant', '🍗': 'restaurant', '🍛': 'restaurant',
@@ -112,35 +100,26 @@ const EMOJI_MAP = {
   '🏠': 'real_estate', '🏡': 'real_estate',
 };
 
-// ════════════════════════════════════════════════════════════
-// CITY EXTRACTOR
-// ════════════════════════════════════════════════════════════
 const KNOWN_CITIES_RAW = [
-  // ── Greater Boston core ───────────────────────────────────
   'boston', 'dorchester', 'mattapan', 'roxbury', 'hyde park',
   'jamaica plain', 'roslindale', 'east boston', 'charlestown',
   'fenway', 'west roxbury', 'allston', 'brighton',
-  // Inner suburbs
   'cambridge', 'somerville', 'everett', 'malden', 'chelsea',
   'revere', 'winthrop', 'medford', 'quincy', 'milton',
   'brookline', 'newton', 'waltham', 'watertown', 'dedham',
   'norwood', 'woburn', 'belmont', 'arlington', 'stoneham',
   'braintree', 'weymouth', 'needham', 'westwood', 'sharon',
-  // South Shore — Haitian heartland
   'randolph', 'holbrook', 'brockton', 'stoughton', 'canton',
   'avon', 'easton', 'abington', 'west bridgewater', 'bridgewater',
   'whitman', 'taunton', 'hanover', 'rockland', 'hanson',
   'pembroke', 'duxbury', 'hingham', 'cohasset', 'scituate',
   'east bridgewater', 'middleboro', 'raynham',
-  // MetroWest
   'framingham', 'marlborough', 'natick', 'ashland', 'hopkinton',
   'milford', 'northborough', 'southborough', 'hudson', 'shrewsbury',
   'worcester', 'grafton', 'westborough', 'holliston',
-  // North Shore
   'lynn', 'lowell', 'lawrence', 'haverhill', 'saugus',
   'peabody', 'salem', 'swampscott', 'methuen', 'andover',
   'north andover', 'amesbury', 'newburyport', 'beverly', 'gloucester',
-  // ── Florida ───────────────────────────────────────────────
   'miami', 'miami gardens', 'north miami', 'north miami beach',
   'hialeah', 'miramar', 'hollywood', 'fort lauderdale',
   'pompano beach', 'deerfield beach', 'west palm beach',
@@ -151,24 +130,19 @@ const KNOWN_CITIES_RAW = [
   'lake worth', 'riviera beach', 'palm beach gardens',
   'orlando', 'kissimmee', 'tampa', 'st petersburg', 'clearwater',
   'weston', 'wellington',
-  // ── New York metro ────────────────────────────────────────
   'new york', 'brooklyn', 'bronx', 'queens', 'manhattan',
   'staten island', 'yonkers', 'mount vernon', 'new rochelle',
   'white plains', 'flushing', 'long island city',
   'hempstead', 'freeport', 'valley stream', 'uniondale', 'elmont',
-  // New Jersey
   'newark', 'irvington', 'east orange', 'orange', 'jersey city',
   'elizabeth', 'hoboken', 'paterson', 'bloomfield', 'montclair',
   'union city', 'bayonne', 'south orange', 'maplewood',
-  // Connecticut
   'bridgeport', 'stamford', 'new haven', 'norwalk', 'stratford',
   'milford', 'trumbull', 'fairfield', 'shelton', 'greenwich',
-  // ── Canada ────────────────────────────────────────────────
   'montreal', 'laval', 'longueuil', 'brossard', 'saint-hubert',
   'saint-leonard', 'montreal-nord', 'rivière-des-prairies',
   'repentigny', 'terrebonne', 'blainville', 'boisbriand',
   'rosemère', 'saint-eustache', 'mascouche', 'laprairie',
-  // ── Haiti ─────────────────────────────────────────────────
   'port-au-prince', 'pap', 'pétionville', 'petion-ville',
   'delmas', 'tabarre', 'carrefour', 'cité soleil',
   'croix-des-bouquets', 'gressier', 'léogâne', 'kenscoff',
@@ -200,9 +174,6 @@ function preRoute(normalizedText) {
   return null;
 }
 
-// ════════════════════════════════════════════════════════════
-// AREA CODE → CITY
-// ════════════════════════════════════════════════════════════
 const AREA_CODE_CITY = {
   '617': 'Boston',   '857': 'Boston',   '781': 'Boston',   '339': 'Boston',
   '508': 'Brockton', '774': 'Brockton',
@@ -219,9 +190,6 @@ function inferCityFromPhone(waId) {
   return null;
 }
 
-// ════════════════════════════════════════════════════════════
-// DEDUPLICATION
-// ════════════════════════════════════════════════════════════
 const _recentMsgs = new Map();
 function isDuplicateInbound(waId, message) {
   const key  = `${waId}:${message.slice(0, 80)}`;
@@ -232,9 +200,6 @@ function isDuplicateInbound(waId, message) {
   return false;
 }
 
-// ════════════════════════════════════════════════════════════
-// CLAUDE SAFE WRAPPER
-// ════════════════════════════════════════════════════════════
 async function detectTopicSafe(message, lang) {
   try {
     return await Promise.race([
@@ -249,9 +214,6 @@ async function detectTopicSafe(message, lang) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// STATIC DATA
-// ════════════════════════════════════════════════════════════
 const SERVICE_OPTIONS = [
   { num: 1,  slug: 'plumber',     icon: '🔧', label: { en: 'Plumber',           ht: 'Plonbye',    fr: 'Plombier'     }},
   { num: 2,  slug: 'electrician', icon: '⚡', label: { en: 'Electrician',        ht: 'Elektrisyen', fr: 'Électricien' }},
@@ -305,9 +267,6 @@ function sanitize(raw) {
   return text;
 }
 
-// ════════════════════════════════════════════════════════════
-// PROCESS MESSAGE
-// ════════════════════════════════════════════════════════════
 async function processMessage({ waId, displayName, messageId, messageType, content }) {
   const message = sanitize(content);
   if (!message) return;
@@ -357,9 +316,6 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// ROUTE
-// ════════════════════════════════════════════════════════════
 async function route({ user, message, lang, conversationId }) {
   try {
     const sessionState = user.session_state || {};
@@ -405,8 +361,6 @@ async function route({ user, message, lang, conversationId }) {
     }
 
     // ── WORLD CUP ─────────────────────────────────────────────
-    // Fast path — no Claude call. Returns string, string[], or Promise.
-    // Promise check required: PREDIKSYON handlers are async (Supabase reads).
     const wcRaw      = handleWorldCupKeywords(message, user.whatsapp_id);
     const wcResponse = (wcRaw instanceof Promise) ? await wcRaw : wcRaw;
     if (wcResponse !== null) {
@@ -482,39 +436,12 @@ async function route({ user, message, lang, conversationId }) {
       return await findHandler.handleVendorStats({ user, lang });
     }
 
-    // ── JOIN — premium slot inquiry ───────────────────────────
+    // ── JOIN ──────────────────────────────────────────────────
     if (text === 'join') {
       const join = {
-        ht: `💎 *Vle yon plas Premium sou Baz?*
-
-Biznis Premium yo:
-• 👑 Parèt an premye nan tout rechèch
-• 💬 Kati espesyal ak deskripsyon ou
-• ✅ Badge verifye
-• 📊 Estatistik chak semèn
-
-*$19/mwa* — Ekri oswa rele:
-📞 Kontakte Baz: bazht.com`,
-        en: `💎 *Want a Premium spot on Baz?*
-
-Premium businesses get:
-• 👑 First position in every search
-• 💬 Featured card with your description
-• ✅ Verified badge
-• 📊 Weekly impression stats
-
-*$19/month* — Reach us at:
-📞 bazht.com`,
-        fr: `💎 *Vous voulez une place Premium sur Baz?*
-
-Les entreprises Premium obtiennent:
-• 👑 Première position dans chaque recherche
-• 💬 Carte vedette avec votre description
-• ✅ Badge vérifié
-• 📊 Statistiques hebdomadaires
-
-*19$/mois* — Contactez-nous:
-📞 bazht.com`,
+        ht: `💎 *Vle yon plas Premium sou Baz?*\n\nBiznis Premium yo:\n• 👑 Parèt an premye nan tout rechèch\n• 💬 Kati espesyal ak deskripsyon ou\n• ✅ Badge verifye\n• 📊 Estatistik chak semèn\n\n*$19/mwa* — Ekri oswa rele:\n📞 Kontakte Baz: bazht.com`,
+        en: `💎 *Want a Premium spot on Baz?*\n\nPremium businesses get:\n• 👑 First position in every search\n• 💬 Featured card with your description\n• ✅ Verified badge\n• 📊 Weekly impression stats\n\n*$19/month* — Reach us at:\n📞 bazht.com`,
+        fr: `💎 *Vous voulez une place Premium sur Baz?*\n\nLes entreprises Premium obtiennent:\n• 👑 Première position dans chaque recherche\n• 💬 Carte vedette avec votre description\n• ✅ Badge vérifié\n• 📊 Statistiques hebdomadaires\n\n*19$/mois* — Contactez-nous:\n📞 bazht.com`,
       };
       return sendText(user.whatsapp_id, join[lang] || join.en);
     }
@@ -570,7 +497,7 @@ Les entreprises Premium obtiennent:
       }
     }
 
-    // ── BUSINESS SELECTION — number after results ─────────────
+    // ── BUSINESS SELECTION ────────────────────────────────────
     const RESULT_TTL = 10 * 60 * 1000;
     const resultsFresh = sessionState.last_result_ids?.length &&
       (Date.now() - (sessionState.last_result_ts || 0)) < RESULT_TTL;
@@ -632,9 +559,6 @@ Les entreprises Premium obtiennent:
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// CATEGORY HANDLER
-// ════════════════════════════════════════════════════════════
 async function handleCategory({ topic, user, message, lang, conversationId, conversationHistory = [], forceMenu = false }) {
   const { category_slug, city, country } = topic;
 
@@ -669,9 +593,6 @@ async function handleCategory({ topic, user, message, lang, conversationId, conv
   return sendText(user.whatsapp_id, menuText);
 }
 
-// ════════════════════════════════════════════════════════════
-// CITY REFINEMENT
-// ════════════════════════════════════════════════════════════
 async function refineSearchWithCity(user, city, lang) {
   const sessionState = user.session_state || {};
   const lastSearch   = sessionState.last_search;
@@ -713,34 +634,52 @@ async function refineSearchWithCity(user, city, lang) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// SERVICES SUBMENU
-// ════════════════════════════════════════════════════════════
+// ── SERVICES SUBMENU — interactive list ──────────────────────
 async function handleServicesMenu(user, lang) {
-  const header = { ht: `🛠️ *Ki sèvis ou bezwen?*\n`, en: `🛠️ *What service do you need?*\n`, fr: `🛠️ *Quel service cherchez-vous?*\n` };
-  const back   = { ht: `0. 🏠 Meni prensipal`, en: `0. 🏠 Main menu`, fr: `0. 🏠 Menu principal` };
-  const list   = SERVICE_OPTIONS.map(s => `${s.num}. ${s.icon} ${s.label[lang] || s.label.en}`).join('\n');
+  const header = {
+    ht: `🛠️ *Ki sèvis ou bezwen?*\nChwazi nan lis la oswa ekri nimewo a.`,
+    en: `🛠️ *What service do you need?*\nChoose from the list or type a number.`,
+    fr: `🛠️ *Quel service cherchez-vous?*\nChoisissez dans la liste ou tapez un numéro.`,
+  };
+  const buttonLabel = { ht: 'Wè sèvis yo', en: 'View Services', fr: 'Voir services' };
+
   try {
     await db.updateSessionState(user.id, {
       ...(user.session_state || {}),
       pending_service_cat: { options: SERVICE_OPTIONS, expires_at: Date.now() + PENDING_TTL_MS },
     });
   } catch {}
-  return sendText(user.whatsapp_id, `${header[lang] || header.en}\n${list}\n${back[lang] || back.en}`);
+
+  return wa.sendList(
+    user.whatsapp_id,
+    header[lang] || header.en,
+    buttonLabel[lang] || buttonLabel.en,
+    [{
+      title: lang === 'ht' ? 'Sèvis disponib' : lang === 'fr' ? 'Services disponibles' : 'Available Services',
+      rows: SERVICE_OPTIONS.map(s => ({
+        id:          s.slug,
+        title:       `${s.icon} ${(s.label[lang] || s.label.en)}`.slice(0, 24),
+        description: '',
+      })),
+    }]
+  );
 }
 
-// ════════════════════════════════════════════════════════════
-// RESOLVE SERVICE CATEGORY
-// ════════════════════════════════════════════════════════════
 async function resolveServiceCategory({ pending, message, user, lang, conversationId }) {
   if (Date.now() > pending.expires_at) return false;
   const normMsg = normalize(message);
   const num     = parseInt(message.trim(), 10);
   let selected  = null;
 
+  // Match by number
   if (!isNaN(num) && num >= 1 && num <= SERVICE_OPTIONS.length) {
     selected = SERVICE_OPTIONS.find(s => s.num === num) || null;
   }
+  // Match by slug — handles interactive list reply IDs (e.g. "plumber", "electrician")
+  if (!selected) {
+    selected = SERVICE_OPTIONS.find(s => s.slug === message.trim().toLowerCase()) || null;
+  }
+  // Match by label text
   if (!selected) {
     for (const svc of SERVICE_OPTIONS) {
       const labels = Object.values(svc.label).map(l => normalize(l));
@@ -760,9 +699,6 @@ async function resolveServiceCategory({ pending, message, user, lang, conversati
   });
 }
 
-// ════════════════════════════════════════════════════════════
-// PENDING MODE RESOLUTION
-// ════════════════════════════════════════════════════════════
 async function resolvePendingMode({ pending, message, user, lang, conversationId }) {
   if (Date.now() > pending.expires_at) return false;
   if (message.trim().toLowerCase() === 'options') {
@@ -830,9 +766,6 @@ function buildModeMenu(cat, options, lang) {
   return `${header[lang] || header.en}\n\n${options.map(o => `${o.num}. ${o.label}`).join('\n')}\n${back[lang] || back.en}`;
 }
 
-// ════════════════════════════════════════════════════════════
-// MORE RESULTS
-// ════════════════════════════════════════════════════════════
 async function showMoreResults(user, lang) {
   const sessionState = user.session_state || {};
   const lastSearch   = sessionState.last_search;
@@ -849,7 +782,11 @@ async function showMoreResults(user, lang) {
       offset:       newOffset,
     });
     if (!businesses.length) {
-      const noMore = { ht: `📋 Pa gen plis rezilta.\n\n_Ekri *menu* pou retounen_`, en: `📋 No more results.\n\n_Type *menu* to go back_`, fr: `📋 Plus de résultats.\n\n_Tapez *menu* pour revenir_` };
+      const noMore = {
+        ht: `📋 Pa gen plis rezilta.\n\n_Ekri *menu* pou retounen_`,
+        en: `📋 No more results.\n\n_Type *menu* to go back_`,
+        fr: `📋 Plus de résultats.\n\n_Tapez *menu* pour revenir_`,
+      };
       return sendText(user.whatsapp_id, noMore[lang] || noMore.en);
     }
     await db.updateSessionState(user.id, { ...sessionState, last_search: { ...lastSearch, offset: newOffset } });
@@ -860,9 +797,6 @@ async function showMoreResults(user, lang) {
   }
 }
 
-// ════════════════════════════════════════════════════════════
-// SESSION HELPERS
-// ════════════════════════════════════════════════════════════
 async function savePendingMode(user, { category_slug, city, country, options }) {
   try {
     await db.updateSessionState(user.id, {
