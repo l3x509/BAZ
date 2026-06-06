@@ -32,9 +32,16 @@ function handleWebhook(req, res) {
         for (const msg of messages) {
           const messageType = msg.type || 'text';
           let content = '';
-          if (messageType === 'text') content = msg.text?.body || '';
-          else if (messageType === 'interactive') {
-            content = msg.interactive?.button_reply?.title || msg.interactive?.list_reply?.title || '';
+          if (messageType === 'text') {
+            content = msg.text?.body || '';
+          } else if (messageType === 'interactive') {
+            // Use ID for list/button replies — maps directly to router keywords
+            // Fall back to title if no ID set
+            content = msg.interactive?.list_reply?.id
+                   || msg.interactive?.button_reply?.id
+                   || msg.interactive?.list_reply?.title
+                   || msg.interactive?.button_reply?.title
+                   || '';
           }
           const contact     = contacts.find(c => c.wa_id === msg.from) || contacts[0] || {};
           const waId        = msg.from;
