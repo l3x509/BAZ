@@ -236,12 +236,12 @@ function handleGrenadye(waId) {
   const msg1 =
     `🇭🇹🔥 *GRENADYE ALASO!*\n` +
     `━━━━━━━━━━━━━━━━━━\n\n` +
-    `Nan 1803, zanse nou yo te kraze chen lan.\n` +
-    `Nan 2026, Les Grenadiers ap pote drapo a.\n\n` +
+    `1974, Nou te goutel premye fwa.\n` +
+    `2026, Grenadye yo retounen.\n\n` +
     `${countdownLine}\n\n` +
-    `Ayiti. Premye repiblik nwa lib nan istwa.\n` +
-    `Premye fwa nan World Cup depi *52 an.*\n` +
-    `*Sa pa chans — sa destin.*\n\n` +
+    `Ayiti - Nou kwe nan ou.\n` +
+    `Apre *52 an nou la anko.*\n` +
+    `*Sa pa chans — se destin.*\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
     `Ekri *PREDIKSYON 2-1* pou fè prediksyon ou\n\n` +
     `━━━━━━━━━━━━━━━━━━\n` +
