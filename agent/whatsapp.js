@@ -272,7 +272,7 @@ module.exports = { sendText, sendButtons, sendList, sendLanguageSelection, sendB
 // the most common entry points — IDs map directly to router keywords.
 async function sendGreeting(to, lang) {
   const body = {
-    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen!\n\nEkri sa w bezwen oswa chwazi:`,
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen!\n\nEkri sa w bezwen oswa chwazi yon kategori:`,
     en: `👋 Welcome to *Baz* — The Haitian Business Zone!\n\nTell me what you need or tap below:`,
     fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien!\n\nDites-moi ce dont vous avez besoin:`,
   };
