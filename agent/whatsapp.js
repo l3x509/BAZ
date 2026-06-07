@@ -47,7 +47,6 @@ async function markAsRead(messageId) {
 }
 
 async function sendButtons(to, bodyText, buttons) {
-  // Max 3 buttons for WhatsApp interactive button messages
   if (!buttons?.length) return;
   try {
     await axios.post(
@@ -70,18 +69,15 @@ async function sendButtons(to, bodyText, buttons) {
       { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } }
     );
   } catch {
-    // Fallback to plain text if interactive fails
     const options = buttons.map((b, i) => `${i + 1}. ${b.title}`).join('\n');
     return sendText(to, `${bodyText}\n\n${options}\n\n_Reply with the number of your choice._`);
   }
 }
 
 async function sendList(to, bodyText, buttonLabel, sections) {
-  // WhatsApp interactive list — max 10 rows total, row titles max 24 chars
   const totalRows = sections.reduce((n, s) => n + (s.rows?.length || 0), 0);
 
   if (totalRows > 10) {
-    // Fallback to plain text for large lists
     const lines = [bodyText, ''];
     sections.forEach(s => {
       if (s.title) lines.push(`*${s.title}*`);
@@ -119,7 +115,6 @@ async function sendList(to, bodyText, buttonLabel, sections) {
       { headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' } }
     );
   } catch {
-    // Fallback to plain text
     const lines = [bodyText, ''];
     sections.forEach(s => {
       if (s.title) lines.push(`*${s.title}*`);
@@ -138,10 +133,40 @@ async function sendLanguageSelection(to) {
   );
 }
 
+// ── GREETING WITH QUICK REPLY BUTTONS ────────────────────────
+async function sendGreeting(to, lang) {
+  const body = {
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen!\n\nEkri sa w bezwen oswa chwazi yon kategori:`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone!\n\nTell me what you need or tap below:`,
+    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien!\n\nDites-moi ce dont vous avez besoin:`,
+  };
+  const buttons = {
+    ht: [
+      { id: 'manje', title: '🍲 Manje / Food' },
+      { id: 'ayiti', title: '⚽ Grenadye' },
+      { id: 'tout',  title: '📋 Tout kategori' },
+    ],
+    en: [
+      { id: 'food',  title: '🍲 Food' },
+      { id: 'ayiti', title: '⚽ Grenadye' },
+      { id: 'all',   title: '📋 All Categories' },
+    ],
+    fr: [
+      { id: 'restaurant', title: '🍲 Restaurant' },
+      { id: 'ayiti',      title: '⚽ Grenadye' },
+      { id: 'tout',       title: '📋 Toutes catégories' },
+    ],
+  };
+  return sendButtons(to, body[lang] || body.en, buttons[lang] || buttons.en);
+}
+
 function getTier(b) {
   return (b && b.listing_tier) ? b.listing_tier : 'free';
 }
 
+// ── PREMIUM SPOTLIGHT ─────────────────────────────────────────
+// Used for featured businesses AND the static Solutions LLC car card.
+// business = null → shows placeholder to drive upgrades.
 async function sendPremiumSpotlight(to, business, lang) {
   try {
     const divider = '──────────────────────';
@@ -179,6 +204,7 @@ async function sendPremiumSpotlight(to, business, lang) {
   }
 }
 
+// ── BUSINESS RESULTS ─────────────────────────────────────────
 async function sendBusinessResults(to, businesses, lang, hasMore = false, showSpotlight = true) {
   if (!businesses?.length) return null;
   const tierOrder = { premium: 0, pro: 1, standard: 2, free: 3 };
@@ -191,7 +217,7 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
     const premium = sorted.find(b => getTier(b) === 'premium') || null;
     await sendPremiumSpotlight(to, premium, lang);
   }
-  const headers    = { ht: '📋 *Rezilta yo:*', en: '📋 *Results:*', fr: '📋 *Résultats:*' };
+  const headers = { ht: '📋 *Rezilta yo:*', en: '📋 *Results:*', fr: '📋 *Résultats:*' };
   const lines = [headers[lang] || headers.en, ''];
   sorted.forEach((b, i) => {
     const tier     = getTier(b);
@@ -220,10 +246,11 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
     }
     lines.push('');
   });
+
   // Send results text
   await sendText(to, lines.join('\n'));
 
-  // Navigation buttons — replaces having to type "plis" or "menu"
+  // Navigation buttons — replaces typing "plis" or "menu"
   await new Promise(r => setTimeout(r, 800));
   try {
     const navBody = {
@@ -238,6 +265,7 @@ async function sendBusinessResults(to, businesses, lang, hasMore = false, showSp
   } catch {}
 }
 
+// ── BUSINESS DETAIL ───────────────────────────────────────────
 async function sendBusinessDetail(to, business, lang) {
   if (!business) return;
   const cat      = business.service_categories;
@@ -260,38 +288,21 @@ async function sendBusinessDetail(to, business, lang) {
     business.avg_rating > 0 ? `⭐ ${business.avg_rating} (${business.review_count} reviews)` : null,
     business.is_verified ? '✅ Verified business' : null,
     '',
-    lang === 'ht' ? '_Ekri *menu* pou retounen_' : lang === 'fr' ? '_Tapez *menu* pour revenir_' : '_Type *menu* to go back_',
+    lang === 'ht' ? '_Ekri *menu* pou retounen_'
+    : lang === 'fr' ? '_Tapez *menu* pour revenir_'
+    : '_Type *menu* to go back_',
   ].filter(Boolean).join('\n');
   return sendText(to, lines);
 }
 
-module.exports = { sendText, sendButtons, sendList, sendLanguageSelection, sendBusinessResults, sendBusinessDetail, markAsRead, sendGreeting };
-
-// ── GREETING WITH QUICK REPLY BUTTONS ────────────────────────
-// Replaces plain text greeting. Three tappable buttons cover
-// the most common entry points — IDs map directly to router keywords.
-async function sendGreeting(to, lang) {
-  const body = {
-    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen!\n\nEkri sa w bezwen oswa chwazi yon kategori:`,
-    en: `👋 Welcome to *Baz* — The Haitian Business Zone!\n\nTell me what you need or tap below:`,
-    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien!\n\nDites-moi ce dont vous avez besoin:`,
-  };
-  const buttons = {
-    ht: [
-      { id: 'manje', title: '🍲 Manje / Food' },
-      { id: 'ayiti', title: '⚽ Grenadye' },
-      { id: 'tout',  title: '📋 Tout kategori' },
-    ],
-    en: [
-      { id: 'food',  title: '🍲 Food' },
-      { id: 'ayiti', title: '⚽ Grenadye' },
-      { id: 'all',   title: '📋 All Categories' },
-    ],
-    fr: [
-      { id: 'restaurant', title: '🍲 Restaurant' },
-      { id: 'ayiti',      title: '⚽ Grenadye' },
-      { id: 'tout',       title: '📋 Toutes catégories' },
-    ],
-  };
-  return sendButtons(to, body[lang] || body.en, buttons[lang] || buttons.en);
-}
+module.exports = {
+  sendText,
+  sendButtons,
+  sendList,
+  sendLanguageSelection,
+  sendGreeting,
+  sendPremiumSpotlight,    // ← added: used by Solutions LLC car card + search spotlights
+  sendBusinessResults,
+  sendBusinessDetail,
+  markAsRead,
+};
