@@ -143,17 +143,17 @@ async function sendGreeting(to, lang) {
   const buttons = {
     ht: [
       { id: 'manje', title: '🍲 Manje / Food' },
-      { id: 'ayiti', title: '⚽ Grenadye' },
+      { id: 'ayiti', title: '⚽ Grenadye Alaso' },
       { id: 'tout',  title: '📋 Tout kategori' },
     ],
     en: [
       { id: 'food',  title: '🍲 Food' },
-      { id: 'ayiti', title: '⚽ Grenadye' },
+      { id: 'ayiti', title: '⚽ Grenadye Alaso' },
       { id: 'all',   title: '📋 All Categories' },
     ],
     fr: [
       { id: 'restaurant', title: '🍲 Restaurant' },
-      { id: 'ayiti',      title: '⚽ Grenadye' },
+      { id: 'ayiti',      title: '⚽ Grenadye Alaso' },
       { id: 'tout',       title: '📋 Toutes catégories' },
     ],
   };
