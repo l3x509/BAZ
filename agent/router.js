@@ -14,62 +14,79 @@ const onboardHandler = require('./handlers/onboard');
 const statusHandler  = require('./handlers/status');
 const { handleWorldCupKeywords } = require('./worldcup');
 
-const HANDLERS = {
-  find: findHandler,
-};
+const HANDLERS = { find: findHandler };
 
 const PENDING_TTL_MS     = 5 * 60 * 1000;
 const MAX_MESSAGE_LENGTH = 1000;
 const CLAUDE_TIMEOUT_MS  = 8000;
 
+// ════════════════════════════════════════════════════════════
+// KEYWORD MAP
+// ════════════════════════════════════════════════════════════
 const KEYWORD_MAP_RAW = {
+  // ── Creole ───────────────────────────────────────────────
   'cheve': 'hair_beauty', 'bote': 'hair_beauty', 'kwafiè': 'hair_beauty',
   'trese': 'hair_beauty', 'tres': 'hair_beauty', 'zong': 'hair_beauty',
   'manje': 'restaurant',  'restoran': 'restaurant', 'griyo': 'restaurant',
   'diri': 'restaurant',   'poul': 'restaurant',
-  'tonmtonm': 'restaurant', 'lalo': 'restaurant',   'bouyon': 'restaurant',
-  'soup': 'restaurant',   'joumou': 'restaurant',  'soup joumou': 'restaurant',
-  'ze': 'restaurant',     'akasan': 'restaurant',  'ju lam': 'restaurant',
+  'tonmtonm': 'restaurant', 'lalo': 'restaurant', 'bouyon': 'restaurant',
+  'soup': 'restaurant',   'joumou': 'restaurant', 'soup joumou': 'restaurant',
+  'ze': 'restaurant',     'akasan': 'restaurant', 'ju lam': 'restaurant',
   'ju manioc': 'restaurant', 'bannann': 'restaurant', 'pikliz': 'restaurant',
-  'legim': 'restaurant',  'tassot': 'restaurant',  'lanbi': 'restaurant',
+  'legim': 'restaurant',  'tassot': 'restaurant', 'lanbi': 'restaurant',
   'pate': 'restaurant',   'akra': 'restaurant',
-  'avoka': 'legal',       'imigrasyon': 'legal',   'viza': 'legal',
-  'gadri': 'childcare',   'timoun': 'childcare',   'ti moun': 'childcare',
-  'kago': 'shipping',     'barèl': 'shipping',     'kolis': 'shipping',
+  'avoka': 'legal',       'imigrasyon': 'legal',  'viza': 'legal',
+  'gadri': 'childcare',   'timoun': 'childcare',  'ti moun': 'childcare',
+  'kago': 'shipping',     'barèl': 'shipping',    'kolis': 'shipping',
   'taks': 'tax_notary',   'notè': 'tax_notary',
   'sèvis': 'services',
   'legliz': 'church',
   'komisyon': 'grocery',  'mache': 'grocery',
   'rad': 'fashion',       'mòd': 'fashion',
-  'plonbye': 'plumber',   'tiyo': 'plumber',       'tuyò': 'plumber',
+  'plonbye': 'plumber',   'tiyo': 'plumber',      'tuyò': 'plumber',
   'elektrisyen': 'electrician',
-  'mekanisyen': 'mechanic',
   'netwayaj': 'cleaner',
-  'transpò': 'driver',    'chofè': 'driver',       'taksi': 'driver',
-  'kizinyè': 'cook',      'trètè': 'cook',         'boulanjri': 'cook',
+  'kizinyè': 'cook',      'trètè': 'cook',        'boulanjri': 'cook',
   'pwofesè': 'tutor',     'lekòl': 'tutor',
-  'doktè': 'medical',     'klinik': 'medical',     'famasi': 'medical',
+  'doktè': 'medical',     'klinik': 'medical',    'famasi': 'medical',
   'imobilye': 'real_estate',
-  'hair': 'hair_beauty',  'salon': 'hair_beauty',  'braids': 'hair_beauty',
+  // ── Car / Machin — top level category ────────────────────
+  'machin': 'car_services',    'kamyon': 'car_services',
+  'toyota': 'car_services',    'nissan': 'car_services',   'jeep': 'car_services',
+  'transpò': 'car_services',   'chofè': 'car_services',    'taksi': 'car_services',
+  'mekanisyen': 'car_services',
+  'achte machin': 'car_services', 'vann machin': 'car_services',
+  'lavaj machin': 'car_services', 'lave machin': 'car_services',
+  'pati machin': 'car_services',
+  'asirans machin': 'car_services',
+  'transpò machin': 'car_services', 'transpò pou ayiti': 'car_services',
+  // ── English ───────────────────────────────────────────────
+  'hair': 'hair_beauty',  'salon': 'hair_beauty', 'braids': 'hair_beauty',
   'nails': 'hair_beauty', 'barber': 'hair_beauty',
   'food': 'restaurant',   'restaurant': 'restaurant', 'eat': 'restaurant',
-  'lawyer': 'legal',      'attorney': 'legal',     'immigration': 'legal',
+  'lawyer': 'legal',      'attorney': 'legal',    'immigration': 'legal',
   'childcare': 'childcare', 'daycare': 'childcare', 'preschool': 'childcare',
-  'shipping': 'shipping', 'cargo': 'shipping',     'barrel': 'shipping',
-  'tax': 'tax_notary',    'notary': 'tax_notary',  'taxes': 'tax_notary',
+  'shipping': 'shipping', 'cargo': 'shipping',    'barrel': 'shipping',
+  'tax': 'tax_notary',    'notary': 'tax_notary', 'taxes': 'tax_notary',
   'services': 'services',
   'church': 'church',
   'grocery': 'grocery',   'market': 'grocery',
   'fashion': 'fashion',   'clothing': 'fashion',
   'plumber': 'plumber',   'plumbing': 'plumber',
   'electrician': 'electrician',
-  'mechanic': 'mechanic',
   'cleaning': 'cleaner',  'cleaner': 'cleaner',
-  'driver': 'driver',     'transport': 'driver',
-  'catering': 'cook',     'bakery': 'cook',        'chef': 'cook',
+  'catering': 'cook',     'bakery': 'cook',       'chef': 'cook',
   'tutor': 'tutor',       'school': 'tutor',
-  'medical': 'medical',   'doctor': 'medical',     'pharmacy': 'medical',
+  'medical': 'medical',   'doctor': 'medical',    'pharmacy': 'medical',
   'realtor': 'real_estate', 'real estate': 'real_estate',
+  'car': 'car_services',  'cars': 'car_services', 'auto': 'car_services',
+  'vehicle': 'car_services', 'mechanic': 'car_services', 'driver': 'car_services',
+  'transport': 'car_services',
+  'car wash': 'car_services',    'detailing': 'car_services',
+  'auto parts': 'car_services',
+  'car insurance': 'car_services',
+  'car shipping': 'car_services', 'ship car': 'car_services',
+  // ── French ────────────────────────────────────────────────
   'cheveux': 'hair_beauty', 'coiffure': 'hair_beauty',
   'manger': 'restaurant',   'nourriture': 'restaurant',
   'avocat': 'legal',
@@ -79,10 +96,16 @@ const KEYWORD_MAP_RAW = {
   'église': 'church',
   'épicerie': 'grocery',
   'mode': 'fashion',
+  'voiture': 'car_services',  'automobile': 'car_services',
+  'mécanicien': 'car_services', 'assurance auto': 'car_services',
+  'lavage voiture': 'car_services', 'pièces auto': 'car_services',
 };
 
 const KEYWORD_MAP = normalizeMap(KEYWORD_MAP_RAW);
 
+// ════════════════════════════════════════════════════════════
+// EMOJI MAP
+// ════════════════════════════════════════════════════════════
 const EMOJI_MAP = {
   '💇': 'hair_beauty', '💇‍♀️': 'hair_beauty', '💅': 'hair_beauty', '✂️': 'hair_beauty',
   '🍽️': 'restaurant',  '🍲': 'restaurant',  '🥘': 'restaurant', '🍗': 'restaurant', '🍛': 'restaurant',
@@ -96,10 +119,13 @@ const EMOJI_MAP = {
   '🎉': 'events',      '🎊': 'events',      '🎤': 'events',
   '⛪': 'church',      '🙏': 'church',
   '🏥': 'medical',     '💊': 'medical',
-  '🚗': 'driver',      '🚌': 'driver',
+  '🚗': 'car_services', '🚌': 'car_services', '🚕': 'car_services',
   '🏠': 'real_estate', '🏡': 'real_estate',
 };
 
+// ════════════════════════════════════════════════════════════
+// CITY EXTRACTOR
+// ════════════════════════════════════════════════════════════
 const KNOWN_CITIES_RAW = [
   'boston', 'dorchester', 'mattapan', 'roxbury', 'hyde park',
   'jamaica plain', 'roslindale', 'east boston', 'charlestown',
@@ -167,13 +193,14 @@ function preRoute(normalizedText) {
   const city = extractCity(normalizedText);
   if (city) {
     const withoutCity = normalizedText.replace(city, '').trim();
-    if (withoutCity && KEYWORD_MAP[withoutCity]) {
-      return { slug: KEYWORD_MAP[withoutCity], city };
-    }
+    if (withoutCity && KEYWORD_MAP[withoutCity]) return { slug: KEYWORD_MAP[withoutCity], city };
   }
   return null;
 }
 
+// ════════════════════════════════════════════════════════════
+// AREA CODE → CITY
+// ════════════════════════════════════════════════════════════
 const AREA_CODE_CITY = {
   '617': 'Boston',   '857': 'Boston',   '781': 'Boston',   '339': 'Boston',
   '508': 'Brockton', '774': 'Brockton',
@@ -190,6 +217,9 @@ function inferCityFromPhone(waId) {
   return null;
 }
 
+// ════════════════════════════════════════════════════════════
+// DEDUPLICATION
+// ════════════════════════════════════════════════════════════
 const _recentMsgs = new Map();
 function isDuplicateInbound(waId, message) {
   const key  = `${waId}:${message.slice(0, 80)}`;
@@ -200,6 +230,9 @@ function isDuplicateInbound(waId, message) {
   return false;
 }
 
+// ════════════════════════════════════════════════════════════
+// CLAUDE SAFE WRAPPER
+// ════════════════════════════════════════════════════════════
 async function detectTopicSafe(message, lang) {
   try {
     return await Promise.race([
@@ -214,35 +247,66 @@ async function detectTopicSafe(message, lang) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// STATIC DATA
+// ════════════════════════════════════════════════════════════
+
+// Services submenu — 8 items (car moved to its own top-level category)
 const SERVICE_OPTIONS = [
-  { num: 1,  slug: 'plumber',     icon: '🔧', label: { en: 'Plumber',           ht: 'Plonbye',    fr: 'Plombier'     }},
-  { num: 2,  slug: 'electrician', icon: '⚡', label: { en: 'Electrician',        ht: 'Elektrisyen', fr: 'Électricien' }},
-  { num: 3,  slug: 'contractor',  icon: '🏗️', label: { en: 'Contractor',         ht: 'Kontraktè',  fr: 'Entrepreneur' }},
-  { num: 4,  slug: 'mechanic',    icon: '🔩', label: { en: 'Mechanic',           ht: 'Mekanisyen', fr: 'Mécanicien'   }},
-  { num: 5,  slug: 'cleaner',     icon: '🧹', label: { en: 'Cleaning',           ht: 'Netwayaj',   fr: 'Nettoyage'    }},
-  { num: 6,  slug: 'driver',      icon: '🚗', label: { en: 'Driver / Transport', ht: 'Transpò',    fr: 'Transport'    }},
-  { num: 7,  slug: 'cook',        icon: '👨‍🍳', label: { en: 'Cook / Catering',    ht: 'Kizinyè',   fr: 'Traiteur'     }},
-  { num: 8,  slug: 'tutor',       icon: '📚', label: { en: 'Tutor / School',     ht: 'Pwofesè',    fr: 'Tuteur'       }},
-  { num: 9,  slug: 'medical',     icon: '🏥', label: { en: 'Medical',            ht: 'Medikal',    fr: 'Médical'      }},
-  { num: 10, slug: 'real_estate', icon: '🏠', label: { en: 'Real Estate',        ht: 'Imobilye',   fr: 'Immobilier'   }},
+  { num: 1, slug: 'plumber',     icon: '🔧', label: { en: 'Plumber',           ht: 'Plonbye',    fr: 'Plombier'     }},
+  { num: 2, slug: 'electrician', icon: '⚡', label: { en: 'Electrician',        ht: 'Elektrisyen', fr: 'Électricien' }},
+  { num: 3, slug: 'contractor',  icon: '🏗️', label: { en: 'Contractor',         ht: 'Kontraktè',  fr: 'Entrepreneur' }},
+  { num: 4, slug: 'cleaner',     icon: '🧹', label: { en: 'Cleaning',           ht: 'Netwayaj',   fr: 'Nettoyage'    }},
+  { num: 5, slug: 'cook',        icon: '👨‍🍳', label: { en: 'Cook / Catering',    ht: 'Kizinyè',   fr: 'Traiteur'     }},
+  { num: 6, slug: 'tutor',       icon: '📚', label: { en: 'Tutor / School',     ht: 'Pwofesè',    fr: 'Tuteur'       }},
+  { num: 7, slug: 'medical',     icon: '🏥', label: { en: 'Medical',            ht: 'Medikal',    fr: 'Médical'      }},
+  { num: 8, slug: 'real_estate', icon: '🏠', label: { en: 'Real Estate',        ht: 'Imobilye',   fr: 'Immobilier'   }},
 ];
 
+// Car category — 7 subcategories (top-level, peer of restaurant/hair/legal)
+// DB slugs needed: detailing, auto_parts, car_insurance, car_shipping_haiti
+// (driver and mechanic already exist in DB)
+const CAR_OPTIONS = [
+  { num: 1, slug: 'driver',              icon: '🚗', label: { en: 'Transport / Driver', ht: 'Transpò',          fr: 'Transport'        }},
+  { num: 2, slug: 'mechanic',            icon: '🔩', label: { en: 'Mechanic',            ht: 'Mekanisyen',       fr: 'Mécanicien'       }},
+  { num: 3, slug: 'achte_machin',        icon: '🏎️', label: { en: 'Buy & Sell Cars',    ht: 'Achte & Vann',     fr: 'Acheter & Vendre' }},
+  { num: 4, slug: 'detailing',           icon: '✨', label: { en: 'Car Detailing',       ht: 'Detailing',        fr: 'Détailing'        }},
+  { num: 5, slug: 'auto_parts',          icon: '🔧', label: { en: 'Auto Parts',          ht: 'Pati Machin',      fr: 'Pièces Auto'      }},
+  { num: 6, slug: 'car_insurance',       icon: '🛡️', label: { en: 'Car Insurance',       ht: 'Asirans Machin',   fr: 'Assurance Auto'   }},
+  { num: 7, slug: 'car_shipping_haiti',  icon: '🚢', label: { en: 'Ship Car to Haiti',  ht: 'Transpò pou Ayiti', fr: 'Transport Haïti' }},
+];
+
+// Solutions LLC — premium business for Achte & Vann Machin
+const SOLUTIONS_LLC = {
+  name:         'Solutions LLC',
+  city:         'Boston',
+  address:      '',
+  phone:        '(857) 229-5384',
+  whatsapp:     '3392086659',
+  website:      null,
+  description:  'Achte & vann machin — Boston, MA',
+  meta:         { hours: null },
+  listing_tier: 'premium',
+  is_verified:  true,
+  avg_rating:   0,
+};
+
 const ALL_CATEGORIES_TEXT = {
-  ht: `📋 *Tout kategori Baz:*\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n🛒 *komisyon* — grocery\n👗 *rad* — fashion\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n⛪ *legliz* — church & community\n🛠️ *sèvis* — plumber, electrician & more\n📋 *lòt* — other services\n\n_Ekri non kategori a pou jwenn biznis._`,
-  en: `📋 *All Baz categories:*\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n🛒 *grocery* — grocery store\n👗 *fashion* — clothing\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n⛪ *church* — church & community\n🛠️ *services* — plumber, electrician & more\n📋 *other* — other services\n\n_Type any category to find businesses._`,
-  fr: `📋 *Toutes les catégories Baz:*\n\n⚽ *AYITI* — Coupe du Monde 2026 🇭🇹\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n🛒 *épicerie* — épicerie\n👗 *mode* — vêtements\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n⛪ *église* — église & communauté\n🛠️ *services* — plombier, électricien & plus\n📋 *autre* — autres services\n\n_Tapez un nom de catégorie pour trouver des entreprises._`,
+  ht: `📋 *Tout kategori Baz:*\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n🛒 *komisyon* — grocery\n👗 *rad* — fashion\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n⛪ *legliz* — church & community\n🚗 *machin* — transpò, mekanisyen, achte machin & plis\n🛠️ *sèvis* — plumber, electrician & more\n\n_Ekri non kategori a pou jwenn biznis._`,
+  en: `📋 *All Baz categories:*\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n🛒 *grocery* — grocery store\n👗 *fashion* — clothing\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n⛪ *church* — church & community\n🚗 *car* — transport, mechanic, buy/sell & more\n🛠️ *services* — plumber, electrician & more\n\n_Type any category to find businesses._`,
+  fr: `📋 *Toutes les catégories Baz:*\n\n⚽ *AYITI* — Coupe du Monde 2026 🇭🇹\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n🛒 *épicerie* — épicerie\n👗 *mode* — vêtements\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n⛪ *église* — église & communauté\n🚗 *voiture* — transport, mécanique, achat/vente & plus\n🛠️ *services* — plombier, électricien & plus\n\n_Tapez un nom de catégorie pour trouver des entreprises._`,
 };
 
 const COPY = {
   greeting: {
-    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n🛠️ *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
-    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n🛠️ *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
-    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n⚽ *AYITI* — Coupe du Monde 2026 🇭🇹\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n🛠️ *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
+    ht: `👋 Byenvini nan *Baz* — Zone Biznis Ayisyen.\n\nEkri sa w bezwen:\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *cheve* — hair & beauty\n🍲 *manje* — restaurant\n🚗 *machin* — transpò, mekanisyen & plis\n⚖️ *avoka* — legal & immigration\n🧒 *gadri* — childcare\n🎉 *evènman* — upcoming events\n🚢 *kago* — shipping to Haiti\n💼 *taks* — tax & notary\n🛠️ *sèvis* — plumber, electrician & more\n\n_Ekri *tout* pou wè tout kategori yo_`,
+    en: `👋 Welcome to *Baz* — The Haitian Business Zone.\n\nTell me what you need:\n\n⚽ *AYITI* — World Cup 2026 🇭🇹\n💇‍♀️ *hair* — hair & beauty\n🍲 *food* — restaurant\n🚗 *car* — transport, mechanic & more\n⚖️ *lawyer* — legal & immigration\n🧒 *childcare* — daycare & preschool\n🎉 *events* — upcoming events\n🚢 *shipping* — cargo to Haiti\n💼 *tax* — tax & notary\n🛠️ *services* — plumber, electrician & more\n\n_Type *all* to see all categories_`,
+    fr: `👋 Bienvenir sur *Baz* — Zone Business Haitien.\n\nDites-moi ce dont vous avez besoin:\n\n⚽ *AYITI* — Coupe du Monde 2026 🇭🇹\n💇‍♀️ *cheveux* — coiffure & beauté\n🍲 *restaurant* — restaurant\n🚗 *voiture* — transport, mécanique & plus\n⚖️ *avocat* — juridique & immigration\n🧒 *garderie* — garde d'enfants\n🎉 *événements* — événements à venir\n🚢 *expédition* — colis vers Haïti\n💼 *impôts* — impôts & notaire\n🛠️ *services* — plombier, électricien & plus\n\n_Tapez *tout* pour voir toutes les catégories_`,
   },
   unknown: {
-    ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, avoka, cheve...)\n• *menu* — pou retounen nan meni prensipal\n• *tout* — pou wè tout kategori yo\n\n_Konsèy: ajoute vil la — "cheve Boston" oswa "avoka Brockton"_`,
-    en: `I didn't catch that. Try:\n• What you're *looking for* (restaurant, lawyer, hair...)\n• *menu* — to go back to the main menu\n• *all* — to see all categories\n\n_Tip: include a city — "hair Boston" or "lawyer Brockton"_`,
-    fr: `Je n'ai pas compris. Essayez:\n• Ce que vous *cherchez* (restaurant, avocat...)\n• *menu* — pour revenir au menu principal\n• *tout* — pour voir toutes les catégories\n\n_Conseil: précisez la ville — "cheveux Boston" ou "avocat Brockton"_`,
+    ht: `Mwen pa konprann. Eseye:\n• Ekri sa w *chèche* (restoran, avoka, machin...)\n• *menu* — pou retounen nan meni prensipal\n• *tout* — pou wè tout kategori yo\n\n_Konsèy: ajoute vil la — "cheve Boston" oswa "avoka Brockton"_`,
+    en: `I didn't catch that. Try:\n• What you're *looking for* (restaurant, lawyer, car...)\n• *menu* — to go back to the main menu\n• *all* — to see all categories\n\n_Tip: include a city — "hair Boston" or "car Brockton"_`,
+    fr: `Je n'ai pas compris. Essayez:\n• Ce que vous *cherchez* (restaurant, avocat, voiture...)\n• *menu* — pour revenir au menu principal\n• *tout* — pour voir toutes les catégories\n\n_Conseil: précisez la ville — "cheveux Boston" ou "avocat Brockton"_`,
   },
   comingSoon: {
     ht: `⏳ Fonksyon sa a ap vini byento!`,
@@ -267,23 +331,19 @@ function sanitize(raw) {
   return text;
 }
 
+// ════════════════════════════════════════════════════════════
+// PROCESS MESSAGE
+// ════════════════════════════════════════════════════════════
 async function processMessage({ waId, displayName, messageId, messageType, content }) {
   const message = sanitize(content);
   if (!message) return;
-
-  if (isDuplicateInbound(waId, message)) {
-    console.log(`[router] Duplicate dropped: ${waId}`);
-    return;
-  }
-
+  if (isDuplicateInbound(waId, message)) { console.log(`[router] Duplicate dropped: ${waId}`); return; }
   try {
     const [user, existingConvo] = await Promise.all([
       db.getOrCreateUser(waId, displayName),
       db.getConversationByWaId(waId),
     ]);
-
     let lang = user.language || 'en';
-
     if (!user.location_city) {
       const inferredCity = inferCityFromPhone(waId);
       if (inferredCity) {
@@ -292,30 +352,20 @@ async function processMessage({ waId, displayName, messageId, messageType, conte
           .catch(() => {});
       }
     }
-
     let conversation = existingConvo;
-    if (!conversation) {
-      try { conversation = await db.createConversation(user.id, waId); } catch {}
-    }
-
+    if (!conversation) { try { conversation = await db.createConversation(user.id, waId); } catch {} }
     if (conversation?.id) {
-      db.logMessage({
-        conversationId: conversation.id,
-        userId:         user.id,
-        direction:      'inbound',
-        messageType,
-        content:        message,
-        metaMessageId:  messageId,
-      });
+      db.logMessage({ conversationId: conversation.id, userId: user.id, direction: 'inbound', messageType, content: message, metaMessageId: messageId });
     }
-
     await route({ user, message, lang, conversationId: conversation?.id || null });
-
   } catch (err) {
     console.error('[router] processMessage error:', err.message, err.stack);
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// ROUTE
+// ════════════════════════════════════════════════════════════
 async function route({ user, message, lang, conversationId }) {
   try {
     const sessionState = user.session_state || {};
@@ -340,9 +390,7 @@ async function route({ user, message, lang, conversationId }) {
             ? `LIVE: ${updated.title} (${remaining > 0 ? remaining + ' more pending' : 'none pending'})`
             : `Rejected: ${updated.title}`
           );
-        } catch (err) {
-          return sendText(user.whatsapp_id, 'Error: ' + err.message);
-        }
+        } catch (err) { return sendText(user.whatsapp_id, 'Error: ' + err.message); }
       }
     }
 
@@ -351,6 +399,7 @@ async function route({ user, message, lang, conversationId }) {
     if (backWords.has(text)) {
       await clearPendingMode(user);
       await clearServiceCategory(user);
+      await clearCarCategory(user);
       return wa.sendGreeting(user.whatsapp_id, lang);
     }
 
@@ -375,12 +424,12 @@ async function route({ user, message, lang, conversationId }) {
       }
       return;
     }
-    // ── END WORLD CUP ─────────────────────────────────────────
 
     // ── OPTIONS ───────────────────────────────────────────────
     if (text === 'options' && sessionState.last_category) {
       await clearPendingMode(user);
       await clearServiceCategory(user);
+      await clearCarCategory(user);
       return await handleCategory({
         topic: { type: 'category', category_slug: sessionState.last_category, city: null, country: null },
         user, message, lang, conversationId, forceMenu: true,
@@ -392,8 +441,15 @@ async function route({ user, message, lang, conversationId }) {
     const SEARCH_TTL = 30 * 60 * 1000;
     const lastSearchFresh = sessionState.last_search &&
       (Date.now() - (sessionState.last_search.ts || 0)) < SEARCH_TTL;
-    if (moreWords.has(text) && lastSearchFresh) {
-      return await showMoreResults(user, lang);
+    if (moreWords.has(text) && lastSearchFresh) return await showMoreResults(user, lang);
+
+    // ── PENDING CAR CATEGORY ──────────────────────────────────
+    if (sessionState.pending_car_cat) {
+      const handled = await resolveCarCategory({
+        pending: sessionState.pending_car_cat, message, user, lang, conversationId,
+      });
+      if (handled) return;
+      await clearCarCategory(user);
     }
 
     // ── PENDING SERVICE CATEGORY ──────────────────────────────
@@ -432,16 +488,14 @@ async function route({ user, message, lang, conversationId }) {
     }
 
     // ── VENDOR STATS ──────────────────────────────────────────
-    if (text === 'stats' || text === 'estatistik') {
-      return await findHandler.handleVendorStats({ user, lang });
-    }
+    if (text === 'stats' || text === 'estatistik') return await findHandler.handleVendorStats({ user, lang });
 
     // ── JOIN ──────────────────────────────────────────────────
     if (text === 'join') {
       const join = {
-        ht: `💎 *Vle yon plas Premium sou Baz?*\n\nBiznis Premium yo:\n• 👑 Parèt an premye nan tout rechèch\n• 💬 Kati espesyal ak deskripsyon ou\n• ✅ Badge verifye\n• 📊 Estatistik chak semèn\n\n*$19/mwa* — Ekri oswa rele:\n📞 Kontakte Baz: bazht.com`,
-        en: `💎 *Want a Premium spot on Baz?*\n\nPremium businesses get:\n• 👑 First position in every search\n• 💬 Featured card with your description\n• ✅ Verified badge\n• 📊 Weekly impression stats\n\n*$19/month* — Reach us at:\n📞 bazht.com`,
-        fr: `💎 *Vous voulez une place Premium sur Baz?*\n\nLes entreprises Premium obtiennent:\n• 👑 Première position dans chaque recherche\n• 💬 Carte vedette avec votre description\n• ✅ Badge vérifié\n• 📊 Statistiques hebdomadaires\n\n*19$/mois* — Contactez-nous:\n📞 bazht.com`,
+        ht: `💎 *Vle yon plas Premium sou Baz?*\n\nBiznis Premium yo:\n• 👑 Parèt an premye nan tout rechèch\n• 💬 Kati espesyal ak deskripsyon ou\n• ✅ Badge verifye\n• 📊 Estatistik chak semèn\n\n*$39/mwa* — Kontakte Baz: bazht.com`,
+        en: `💎 *Want a Premium spot on Baz?*\n\nPremium businesses get:\n• 👑 First position in every search\n• 💬 Featured card with your description\n• ✅ Verified badge\n• 📊 Weekly impression stats\n\n*$39/month* — bazht.com`,
+        fr: `💎 *Vous voulez une place Premium sur Baz?*\n\nLes entreprises Premium obtiennent:\n• 👑 Première position dans chaque recherche\n• 💬 Carte vedette avec votre description\n• ✅ Badge vérifié\n• 📊 Statistiques hebdomadaires\n\n*39$/mois* — bazht.com`,
       };
       return sendText(user.whatsapp_id, join[lang] || join.en);
     }
@@ -461,18 +515,13 @@ async function route({ user, message, lang, conversationId }) {
     if (preRouted) {
       console.log(`[router] Keyword: "${normText}" → ${preRouted.slug}${preRouted.city ? ' / ' + preRouted.city : ''}`);
       return await handleCategory({
-        topic: {
-          type: 'category',
-          category_slug: preRouted.slug,
-          city:    preRouted.city || null,
-          country: null,
-        },
+        topic: { type: 'category', category_slug: preRouted.slug, city: preRouted.city || null, country: null },
         user, message, lang, conversationId,
       });
     }
 
     // ── BUSINESS NAME LOOKUP ──────────────────────────────────
-    const inputIsCity = extractCity(normText) === normText;
+    const inputIsCity    = extractCity(normText) === normText;
     const hasActiveSearch = lastSearchFresh;
     if (normText.length >= 3 && !(inputIsCity && hasActiveSearch)) {
       try {
@@ -482,7 +531,6 @@ async function route({ user, message, lang, conversationId }) {
           return await findHandler.handleBusinessSelected({ user, businessId: nameMatches[0].id, lang });
         }
         if (nameMatches?.length > 1) {
-          console.log(`[router] Name ambiguous: ${nameMatches.length} matches for "${normText}"`);
           const { last_search: _ls, last_result_ids: _lr, last_category: _lc, ...cleanState } = sessionState;
           await db.updateSessionState(user.id, {
             ...cleanState,
@@ -492,9 +540,7 @@ async function route({ user, message, lang, conversationId }) {
           });
           return wa.sendBusinessResults(user.whatsapp_id, nameMatches, lang, false);
         }
-      } catch (err) {
-        console.warn('[router] findBusinessByName error (non-fatal):', err.message);
-      }
+      } catch (err) { console.warn('[router] findBusinessByName error (non-fatal):', err.message); }
     }
 
     // ── BUSINESS SELECTION ────────────────────────────────────
@@ -504,32 +550,25 @@ async function route({ user, message, lang, conversationId }) {
     if (resultsFresh) {
       const sel = parseInt(text, 10);
       if (!isNaN(sel) && sel >= 1 && sel <= sessionState.last_result_ids.length) {
-        return await findHandler.handleBusinessSelected({
-          user, businessId: sessionState.last_result_ids[sel - 1], lang,
-        });
+        return await findHandler.handleBusinessSelected({ user, businessId: sessionState.last_result_ids[sel - 1], lang });
       }
     }
 
-    // ── SESSION-AWARE CITY REFINEMENT ─────────────────────────
+    // ── CITY REFINEMENT ───────────────────────────────────────
     const extractedCity = extractCity(normText);
     if (extractedCity && normText === extractedCity && sessionState.last_search) {
-      console.log(`[router] City refinement: ${extractedCity}`);
       return await refineSearchWithCity(user, extractedCity, lang);
     }
 
     // ── DETECT TOPIC (Claude) ─────────────────────────────────
     let conversationHistory = [];
-    try {
-      if (conversationId) conversationHistory = await db.getConversationHistory(conversationId);
-    } catch {}
+    try { if (conversationId) conversationHistory = await db.getConversationHistory(conversationId); } catch {}
 
     const topic = await detectTopicSafe(message, lang);
     console.log(`[router] Claude: ${JSON.stringify(topic)} user=${user.whatsapp_id}`);
 
     if (!topic || (topic.type === 'unknown' && !topic.category_slug)) {
-      if (extractedCity && sessionState.last_search) {
-        return await refineSearchWithCity(user, extractedCity, lang);
-      }
+      if (extractedCity && sessionState.last_search) return await refineSearchWithCity(user, extractedCity, lang);
       return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
     }
 
@@ -559,31 +598,30 @@ async function route({ user, message, lang, conversationId }) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// CATEGORY HANDLER
+// ════════════════════════════════════════════════════════════
 async function handleCategory({ topic, user, message, lang, conversationId, conversationHistory = [], forceMenu = false }) {
   const { category_slug, city, country } = topic;
 
-  if (category_slug === 'services') return await handleServicesMenu(user, lang);
+  // Special menu categories — bypass DB lookup
+  if (category_slug === 'services')     return await handleServicesMenu(user, lang);
+  if (category_slug === 'car_services') return await handleCarMenu(user, lang);
 
-  const sessionState = user.session_state || {};
-  const cat          = bySlug(category_slug);
-  const allOptions   = getModeOptions(category_slug, lang);
-
-  if (!allOptions.length || !cat) {
-    return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
-  }
-
+  const sessionState    = user.session_state || {};
+  const cat             = bySlug(category_slug);
+  const allOptions      = getModeOptions(category_slug, lang);
   const resolvedCity    = city    || null;
   const resolvedCountry = country || user.location_country || null;
+
+  if (!allOptions.length || !cat) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
 
   if (allOptions.length === 1) {
     try { await db.updateSessionState(user.id, { ...sessionState, last_category: category_slug }); } catch {}
     return dispatch(allOptions[0].handler, {
       user, message, lang, conversationHistory,
-      category:  category_slug,
-      city:      resolvedCity,
-      userCity:  user.location_city || null,
-      country:   resolvedCountry,
-      mode:      allOptions[0].mode,
+      category: category_slug, city: resolvedCity,
+      userCity: user.location_city || null, country: resolvedCountry, mode: allOptions[0].mode,
     });
   }
 
@@ -593,21 +631,18 @@ async function handleCategory({ topic, user, message, lang, conversationId, conv
   return sendText(user.whatsapp_id, menuText);
 }
 
+// ════════════════════════════════════════════════════════════
+// CITY REFINEMENT
+// ════════════════════════════════════════════════════════════
 async function refineSearchWithCity(user, city, lang) {
   const sessionState = user.session_state || {};
   const lastSearch   = sessionState.last_search;
   if (!lastSearch) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
-
   try {
     const { results: businesses, broadened, triedCity } = await db.searchBusinesses({
-      query:        lastSearch.query,
-      categorySlug: lastSearch.categorySlug,
-      city,
-      country:      lastSearch.country,
-      limit:        5,
-      offset:       0,
+      query: lastSearch.query, categorySlug: lastSearch.categorySlug,
+      city, country: lastSearch.country, limit: 5, offset: 0,
     });
-
     if (!businesses.length) {
       const noResults = {
         ht: `😔 Pa gen biznis nan *${city}* kounye a.\n\n_Eseye yon lòt vil oswa ekri *menu* pou retounen_`,
@@ -616,7 +651,6 @@ async function refineSearchWithCity(user, city, lang) {
       };
       return sendText(user.whatsapp_id, noResults[lang] || noResults.en);
     }
-
     if (broadened && triedCity) {
       const note = {
         ht: `📍 Pa gen rezilta nan *${triedCity}* — men lòt biznis:\n\n`,
@@ -625,7 +659,6 @@ async function refineSearchWithCity(user, city, lang) {
       };
       await sendText(user.whatsapp_id, note[lang] || note.en);
     }
-
     await db.updateSessionState(user.id, { ...sessionState, last_search: { ...lastSearch, city, offset: 0 } });
     return wa.sendBusinessResults(user.whatsapp_id, businesses, lang, businesses.length === 5);
   } catch (err) {
@@ -634,52 +667,109 @@ async function refineSearchWithCity(user, city, lang) {
   }
 }
 
-// ── SERVICES SUBMENU — interactive list ──────────────────────
+// ════════════════════════════════════════════════════════════
+// SERVICES SUBMENU — 8 items
+// ════════════════════════════════════════════════════════════
 async function handleServicesMenu(user, lang) {
   const header = {
     ht: `🛠️ *Ki sèvis ou bezwen?*\nChwazi nan lis la oswa ekri nimewo a.`,
     en: `🛠️ *What service do you need?*\nChoose from the list or type a number.`,
     fr: `🛠️ *Quel service cherchez-vous?*\nChoisissez dans la liste ou tapez un numéro.`,
   };
-  const buttonLabel = { ht: 'Wè sèvis yo', en: 'View Services', fr: 'Voir services' };
-
   try {
     await db.updateSessionState(user.id, {
       ...(user.session_state || {}),
       pending_service_cat: { options: SERVICE_OPTIONS, expires_at: Date.now() + PENDING_TTL_MS },
     });
   } catch {}
-
   return wa.sendList(
-    user.whatsapp_id,
-    header[lang] || header.en,
-    buttonLabel[lang] || buttonLabel.en,
-    [{
-      title: lang === 'ht' ? 'Sèvis disponib' : lang === 'fr' ? 'Services disponibles' : 'Available Services',
-      rows: SERVICE_OPTIONS.map(s => ({
-        id:          s.slug,
-        title:       `${s.icon} ${(s.label[lang] || s.label.en)}`.slice(0, 24),
-        description: '',
-      })),
-    }]
+    user.whatsapp_id, header[lang] || header.en,
+    lang === 'ht' ? 'Wè sèvis yo' : lang === 'fr' ? 'Voir services' : 'View Services',
+    [{ title: lang === 'ht' ? 'Sèvis disponib' : lang === 'fr' ? 'Services disponibles' : 'Available Services',
+       rows: SERVICE_OPTIONS.map(s => ({ id: s.slug, title: `${s.icon} ${(s.label[lang] || s.label.en)}`.slice(0, 24), description: '' })) }]
   );
 }
 
+// ════════════════════════════════════════════════════════════
+// CAR MENU — 7 subcategories (top-level category)
+// ════════════════════════════════════════════════════════════
+async function handleCarMenu(user, lang) {
+  const header = {
+    ht: `🚗 *Ki sèvis machin ou bezwen?*\nChwazi nan lis la:`,
+    en: `🚗 *What car service do you need?*\nChoose from the list:`,
+    fr: `🚗 *Quel service auto cherchez-vous?*\nChoisissez dans la liste:`,
+  };
+  try {
+    await db.updateSessionState(user.id, {
+      ...(user.session_state || {}),
+      pending_car_cat: { options: CAR_OPTIONS, expires_at: Date.now() + PENDING_TTL_MS },
+    });
+  } catch {}
+  return wa.sendList(
+    user.whatsapp_id, header[lang] || header.en,
+    lang === 'ht' ? 'Wè opsyon yo' : lang === 'fr' ? 'Voir options' : 'View Options',
+    [{ title: lang === 'ht' ? 'Opsyon machin' : lang === 'fr' ? 'Options auto' : 'Car options',
+       rows: CAR_OPTIONS.map(s => ({ id: s.slug, title: `${s.icon} ${(s.label[lang] || s.label.en)}`.slice(0, 24), description: '' })) }]
+  );
+}
+
+// ════════════════════════════════════════════════════════════
+// RESOLVE CAR CATEGORY
+// ════════════════════════════════════════════════════════════
+async function resolveCarCategory({ pending, message, user, lang, conversationId }) {
+  if (Date.now() > pending.expires_at) return false;
+  const normMsg = normalize(message);
+  const num     = parseInt(message.trim(), 10);
+  let selected  = null;
+
+  if (!isNaN(num) && num >= 1 && num <= CAR_OPTIONS.length) {
+    selected = CAR_OPTIONS.find(s => s.num === num) || null;
+  }
+  if (!selected) {
+    selected = CAR_OPTIONS.find(s => s.slug === message.trim().toLowerCase()) || null;
+  }
+  if (!selected) {
+    for (const opt of CAR_OPTIONS) {
+      const labels = Object.values(opt.label).map(l => normalize(l));
+      if (labels.some(l => normMsg.includes(l))) { selected = opt; break; }
+    }
+  }
+  if (!selected) return false;
+
+  await clearCarCategory(user);
+
+  // Achte & Vann Machin → Solutions LLC premium spotlight (no DB search)
+  if (selected.slug === 'achte_machin') {
+    await wa.sendPremiumSpotlight(user.whatsapp_id, SOLUTIONS_LLC, lang);
+    return true;
+  }
+
+  // All other subcategories → search DB by slug
+  return await dispatch('find', {
+    user, message, lang, conversationHistory: [],
+    category: selected.slug,
+    city:     null,
+    userCity: user.location_city    || null,
+    country:  user.location_country || null,
+    mode:     'find',
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// RESOLVE SERVICE CATEGORY
+// ════════════════════════════════════════════════════════════
 async function resolveServiceCategory({ pending, message, user, lang, conversationId }) {
   if (Date.now() > pending.expires_at) return false;
   const normMsg = normalize(message);
   const num     = parseInt(message.trim(), 10);
   let selected  = null;
 
-  // Match by number
   if (!isNaN(num) && num >= 1 && num <= SERVICE_OPTIONS.length) {
     selected = SERVICE_OPTIONS.find(s => s.num === num) || null;
   }
-  // Match by slug — handles interactive list reply IDs (e.g. "plumber", "electrician")
   if (!selected) {
     selected = SERVICE_OPTIONS.find(s => s.slug === message.trim().toLowerCase()) || null;
   }
-  // Match by label text
   if (!selected) {
     for (const svc of SERVICE_OPTIONS) {
       const labels = Object.values(svc.label).map(l => normalize(l));
@@ -699,6 +789,9 @@ async function resolveServiceCategory({ pending, message, user, lang, conversati
   });
 }
 
+// ════════════════════════════════════════════════════════════
+// PENDING MODE RESOLUTION
+// ════════════════════════════════════════════════════════════
 async function resolvePendingMode({ pending, message, user, lang, conversationId }) {
   if (Date.now() > pending.expires_at) return false;
   if (message.trim().toLowerCase() === 'options') {
@@ -766,27 +859,21 @@ function buildModeMenu(cat, options, lang) {
   return `${header[lang] || header.en}\n\n${options.map(o => `${o.num}. ${o.label}`).join('\n')}\n${back[lang] || back.en}`;
 }
 
+// ════════════════════════════════════════════════════════════
+// MORE RESULTS
+// ════════════════════════════════════════════════════════════
 async function showMoreResults(user, lang) {
   const sessionState = user.session_state || {};
   const lastSearch   = sessionState.last_search;
   if (!lastSearch) return sendText(user.whatsapp_id, COPY.unknown[lang] || COPY.unknown.en);
-
   const newOffset = (lastSearch.offset || 0) + 5;
   try {
     const { results: businesses } = await db.searchWithCluster({
-      query:        lastSearch.query,
-      categorySlug: lastSearch.categorySlug,
-      city:         lastSearch.city,
-      country:      lastSearch.country,
-      limit:        5,
-      offset:       newOffset,
+      query: lastSearch.query, categorySlug: lastSearch.categorySlug,
+      city: lastSearch.city, country: lastSearch.country, limit: 5, offset: newOffset,
     });
     if (!businesses.length) {
-      const noMore = {
-        ht: `📋 Pa gen plis rezilta.\n\n_Ekri *menu* pou retounen_`,
-        en: `📋 No more results.\n\n_Type *menu* to go back_`,
-        fr: `📋 Plus de résultats.\n\n_Tapez *menu* pour revenir_`,
-      };
+      const noMore = { ht: `📋 Pa gen plis rezilta.\n\n_Ekri *menu* pou retounen_`, en: `📋 No more results.\n\n_Type *menu* to go back_`, fr: `📋 Plus de résultats.\n\n_Tapez *menu* pour revenir_` };
       return sendText(user.whatsapp_id, noMore[lang] || noMore.en);
     }
     await db.updateSessionState(user.id, { ...sessionState, last_search: { ...lastSearch, offset: newOffset } });
@@ -797,6 +884,9 @@ async function showMoreResults(user, lang) {
   }
 }
 
+// ════════════════════════════════════════════════════════════
+// SESSION HELPERS
+// ════════════════════════════════════════════════════════════
 async function savePendingMode(user, { category_slug, city, country, options }) {
   try {
     await db.updateSessionState(user.id, {
@@ -809,9 +899,11 @@ async function savePendingMode(user, { category_slug, city, country, options }) 
 async function clearPendingMode(user) {
   try { const s = { ...(user.session_state || {}) }; delete s.pending_mode; await db.updateSessionState(user.id, s); } catch {}
 }
-
 async function clearServiceCategory(user) {
   try { const s = { ...(user.session_state || {}) }; delete s.pending_service_cat; await db.updateSessionState(user.id, s); } catch {}
+}
+async function clearCarCategory(user) {
+  try { const s = { ...(user.session_state || {}) }; delete s.pending_car_cat; await db.updateSessionState(user.id, s); } catch {}
 }
 
 module.exports = { route, processMessage };
