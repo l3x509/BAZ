@@ -25,10 +25,10 @@ const CLAUDE_TIMEOUT_MS  = 8000;
 // ════════════════════════════════════════════════════════════
 const KEYWORD_MAP_RAW = {
   // ── Creole ───────────────────────────────────────────────
-  'cheve': 'hair_beauty', 'bote': 'hair_beauty', 'kwafiè': 'hair_beauty',
+  'cheve': 'hair_beauty', 'bote': 'hair_beauty', 'kwafè': 'hair_beauty',
   'trese': 'hair_beauty', 'tres': 'hair_beauty', 'zong': 'hair_beauty',
   'manje': 'restaurant',  'restoran': 'restaurant', 'griyo': 'restaurant',
-  'diri': 'restaurant',   'poul': 'restaurant',
+  'diri': 'restaurant',   'poul': 'restaurant', 'pate kode': 'restaurant',
   'tonmtonm': 'restaurant', 'lalo': 'restaurant', 'bouyon': 'restaurant',
   'soup': 'restaurant',   'joumou': 'restaurant', 'soup joumou': 'restaurant',
   'ze': 'restaurant',     'akasan': 'restaurant', 'ju lam': 'restaurant',
