@@ -34,7 +34,7 @@ const HAITI_SCHEDULE = [
     time:      '9PM ET',
     venue:     'Gillette Stadium',
     city:      'Foxborough, MA',
-    note:      '🏠 Lakay nou!',
+    note:      '🏠 Nou nan batay!',
   },
   {
     match:     '🇧🇷 Brezil vs Ayiti 🇭🇹',
