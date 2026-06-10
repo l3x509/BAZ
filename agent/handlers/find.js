@@ -57,7 +57,7 @@ async function handle({ user, message, lang, conversationHistory, category, city
       .join(', ');
 
     const note = {
-      ht: `📍 Pa gen anpil nan *${triedCity}* — n ap montre w sa ki pre w tou${nearby ? ` (${nearby})` : ''}:\n`,
+      ht: `📍 Men kek nan *${triedCity}* — n ap montre w sa ki pre w tou${nearby ? ` (${nearby})` : ''}:\n`,
       en: `📍 Showing nearby results too${nearby ? ` (${nearby})` : ''}:\n`,
       fr: `📍 Résultats des environs inclus${nearby ? ` (${nearby})` : ''}:\n`,
     };
